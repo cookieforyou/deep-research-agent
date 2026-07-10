@@ -15,6 +15,7 @@ import org.springframework.stereotype.Service;
 
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * 评估 Agent — 对生成的研报进行多维度质量评估.
@@ -58,16 +59,19 @@ public class EvalAgent {
     private final String systemPrompt;
     private final String userPromptTemplate;
     private final PiiMaskingService piiMaskingService;
+    private final AtomicReference<Double> evalScoreGauge;
 
     public EvalAgent(
         @Qualifier("evalClient") ChatClient chatClient,
         JsonParseUtils jsonUtils,
         ResourceLoader resourceLoader,
-        PiiMaskingService piiMaskingService
+        PiiMaskingService piiMaskingService,
+        AtomicReference<Double> evalScoreGauge
     ) {
         this.chatClient = chatClient;
         this.jsonUtils = jsonUtils;
         this.piiMaskingService = piiMaskingService;
+        this.evalScoreGauge = evalScoreGauge;
         String fullTemplate = loadPrompt(resourceLoader);
         PromptParts parts = PromptSplitUtils.split(fullTemplate);
         this.systemPrompt = parts.system();
@@ -132,6 +136,8 @@ public class EvalAgent {
             if (result == EvalResult.FALLBACK) {
                 log.warn("[Eval] 评估 JSON 解析失败，使用 fallback");
             } else {
+                // 更新 Micrometer Gauge 供 Prometheus 告警规则使用
+                evalScoreGauge.set(result.overallScore());
                 log.info("[Eval] 评估完成: relevance={}, coherence={}, citationAccuracy={}, " +
                     "completeness={}, conciseness={}, overallScore={}",
                     String.format("%.1f", result.relevance()),

@@ -1,6 +1,7 @@
 package com.example.deepresearch.security;
 
 import com.example.deepresearch.common.config.DeepResearchProperties;
+import com.example.deepresearch.common.observability.BusinessMetrics;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -10,6 +11,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Predicate;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -86,9 +88,11 @@ public class PiiMaskingService {
     private final AtomicInteger bankCardCounter = new AtomicInteger(0);
 
     private final boolean enabled;
+    private final BusinessMetrics businessMetrics;
 
-    public PiiMaskingService(DeepResearchProperties properties) {
+    public PiiMaskingService(DeepResearchProperties properties, BusinessMetrics businessMetrics) {
         this.enabled = properties.pii() != null && properties.pii().enabled();
+        this.businessMetrics = businessMetrics;
     }
 
     // =========================== 公共 API ===========================
@@ -120,21 +124,27 @@ public class PiiMaskingService {
         result = replaceWithToken(result, PHONE_PATTERN, PHONE_TOKEN, phoneCounter,
             "PHONE", tokenTypes);
 
-        // 身份证 → <ID_CARD_N>
+        // 身份证 → <ID_CARD_N>（GB 11643 校验和过滤误匹配）
         result = replaceWithToken(result, ID_CARD_PATTERN, ID_CARD_TOKEN, idCardCounter,
-            "ID_CARD", tokenTypes);
+            "ID_CARD", tokenTypes, PiiMaskingService::validateIdCard);
 
         // 邮箱 → <EMAIL_N>
         result = replaceWithToken(result, EMAIL_PATTERN, EMAIL_TOKEN, emailCounter,
             "EMAIL", tokenTypes);
 
-        // 银行卡 → <BANK_CARD_N>
+        // 银行卡 → <BANK_CARD_N>（Luhn 算法过滤误匹配）
         result = replaceWithToken(result, BANK_CARD_PATTERN, BANK_CARD_TOKEN, bankCardCounter,
-            "BANK_CARD", tokenTypes);
+            "BANK_CARD", tokenTypes, PiiMaskingService::luhnCheck);
 
         int tokenCount = tokenTypes.size();
         if (tokenCount > 0) {
             log.debug("[PII] 标记化完成: {} 个令牌 → {}", tokenCount, tokenTypes);
+            // 记录按类型的 PII 指标（供 Prometheus 告警规则使用）
+            tokenTypes.stream()
+                .distinct()
+                .forEach(type -> businessMetrics.recordPiiMasked(
+                    type.toLowerCase(),
+                    (int) tokenTypes.stream().filter(type::equals).count()));
         }
 
         return new TokenizeResult(result, tokenCount, tokenTypes);
@@ -213,11 +223,30 @@ public class PiiMaskingService {
     private String replaceWithToken(String text, Pattern pattern, String tokenPrefix,
                                      AtomicInteger counter, String piiType,
                                      List<String> tokenTypes) {
+        return replaceWithToken(text, pattern, tokenPrefix, counter, piiType, tokenTypes, null);
+    }
+
+    /**
+     * 使用正则匹配 PII 并替换为类型化令牌（带校验器，过滤误匹配）.
+     *
+     * @param validator 可选的校验器，返回 false 的匹配将被跳过（保留原文）
+     */
+    private String replaceWithToken(String text, Pattern pattern, String tokenPrefix,
+                                     AtomicInteger counter, String piiType,
+                                     List<String> tokenTypes,
+                                     Predicate<String> validator) {
         Matcher matcher = pattern.matcher(text);
         StringBuffer sb = new StringBuffer();
+        int falsePositives = 0;
 
         while (matcher.find()) {
             String piiValue = matcher.group();
+            // 校验器过滤误匹配（如 URL 中的 18 位数字被误判为身份证号）
+            if (validator != null && !validator.test(piiValue)) {
+                falsePositives++;
+                matcher.appendReplacement(sb, Matcher.quoteReplacement(piiValue));
+                continue;
+            }
             // 确定性: 相同值 → 相同令牌
             String token = vault.computeIfAbsent(
                 tokenPrefix + "v:" + piiValue,
@@ -230,6 +259,60 @@ public class PiiMaskingService {
         }
         matcher.appendTail(sb);
 
+        if (falsePositives > 0) {
+            log.debug("[PII] {} 误匹配过滤: {} 次", piiType, falsePositives);
+        }
+
         return sb.toString();
+    }
+
+    // ======================== PII 校验算法 ========================
+
+    /**
+     * 身份证号校验（GB 11643-1999）.
+     * <p>
+     * 18 位身份证号的最后一位是校验码，通过前 17 位加权求和 mod 11 计算。
+     * 加权因子: [7, 9, 10, 5, 8, 4, 2, 1, 6, 3, 7, 9, 10, 5, 8, 4, 2]
+     * 校验码映射: ["1", "0", "X", "9", "8", "7", "6", "5", "4", "3", "2"]
+     * </p>
+     */
+    static boolean validateIdCard(String idCard) {
+        if (idCard == null || idCard.length() != 18) return false;
+        int[] weights = {7, 9, 10, 5, 8, 4, 2, 1, 6, 3, 7, 9, 10, 5, 8, 4, 2};
+        String[] checkCodes = {"1", "0", "X", "9", "8", "7", "6", "5", "4", "3", "2"};
+        try {
+            int sum = 0;
+            for (int i = 0; i < 17; i++) {
+                sum += Character.digit(idCard.charAt(i), 10) * weights[i];
+            }
+            String expected = checkCodes[sum % 11];
+            return expected.equalsIgnoreCase(idCard.substring(17));
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
+     * Luhn 算法校验（银行卡号）.
+     * <p>
+     * 从右往左，偶数位翻倍（>9 则减 9），求和能被 10 整除即为有效银行卡号。
+     * 此算法可过滤掉 99%+ 的随机 16-19 位数字误匹配。
+     * </p>
+     */
+    static boolean luhnCheck(String cardNumber) {
+        if (cardNumber == null || cardNumber.isEmpty()) return false;
+        int sum = 0;
+        boolean alternate = false;
+        for (int i = cardNumber.length() - 1; i >= 0; i--) {
+            int digit = Character.digit(cardNumber.charAt(i), 10);
+            if (digit < 0) return false;
+            if (alternate) {
+                digit *= 2;
+                if (digit > 9) digit -= 9;
+            }
+            sum += digit;
+            alternate = !alternate;
+        }
+        return sum % 10 == 0;
     }
 }

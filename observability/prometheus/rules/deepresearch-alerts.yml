@@ -1,0 +1,183 @@
+# =============================================================================
+# DeepResearch — Prometheus 告警规则（9 条）
+# 文件路径: observability/prometheus/rules/deepresearch-alerts.yml
+# =============================================================================
+
+groups:
+  - name: deepresearch_alerts
+    interval: 1m
+    rules:
+      # =======================================================================
+      # 1. LLM 调用 P95 延迟过高
+      # =======================================================================
+      - alert: LLMLatencyHigh
+        expr: |
+          histogram_quantile(0.95, sum(rate(deepresearch_llm_latency_seconds_bucket[5m])) by (le, agent, tier)) > 60
+        for: 5m
+        labels:
+          severity: warning
+          component: llm
+        annotations:
+          summary: "LLM 调用 P95 延迟 > 60s"
+          description: >
+            Agent={{ $labels.agent }} Tier={{ $labels.tier }}
+            P95 延迟={{ $value | humanizeDuration }}
+            可能原因: DeepSeek API 过载、网络延迟、Pro 模型推理时间过长。
+
+      # 1b. Flash 模型延迟告警（阈值更低，因为 Flash 理应更快）
+      - alert: LLMLatencyFlashHigh
+        expr: |
+          histogram_quantile(0.95, sum(rate(deepresearch_llm_latency_seconds_bucket{tier="flash"}[5m])) by (le, agent)) > 30
+        for: 5m
+        labels:
+          severity: info
+          component: llm
+        annotations:
+          summary: "Flash 模型 P95 延迟 > 30s"
+          description: >
+            Agent={{ $labels.agent }} P95 延迟={{ $value | humanizeDuration }}
+            Flash 模型通常应在 15s 内完成，>30s 需要关注。
+
+      # =======================================================================
+      # 2. Token 消耗速率过高（15分钟窗口 > 200K）
+      # =======================================================================
+      - alert: ResearchTokenCostHigh
+        expr: |
+          sum(rate(deepresearch_llm_tokens_input_total[15m]) + rate(deepresearch_llm_tokens_output_total[15m])) > 200000
+        for: 5m
+        labels:
+          severity: warning
+          component: cost
+        annotations:
+          summary: "15分钟窗口内 Token 消耗速率 > 200K"
+          description: >
+            当前速率={{ $value | humanize }} tokens/15min
+            可能表示研究任务异常复杂、LLM 输出了过长内容、
+            或存在意外的循环调用。建议检查最近的研究任务日志。
+
+      # =======================================================================
+      # 3. 搜索降级率过高 (Bocha → Tavily)
+      # =======================================================================
+      - alert: SearchFallbackRateHigh
+        expr: |
+          sum(rate(deepresearch_search_fallback_total_total[10m]))
+          / (sum(rate(deepresearch_search_calls_total_total[10m])) > 0)
+          > 0.5
+        for: 5m
+        labels:
+          severity: critical
+          component: search
+        annotations:
+          summary: "搜索降级率 > 50% (Bocha → Tavily)"
+          description: >
+            近10分钟降级率={{ $value | humanizePercentage }}
+            Bocha API 可能不可用或触发限流。
+            建议: 检查 Bocha API Key 配额、降低并发量、确认网络连通性。
+
+      # =======================================================================
+      # 4. 语义缓存命中率过低
+      # =======================================================================
+      - alert: CacheHitRateLow
+        expr: |
+          sum(rate(deepresearch_cache_access_total_total{result="hit"}[15m]))
+          / (sum(rate(deepresearch_cache_access_total_total[15m])) > 0)
+          < 0.1
+        for: 15m
+        labels:
+          severity: info
+          component: cache
+        annotations:
+          summary: "语义缓存命中率 < 10%"
+          description: >
+            近15分钟命中率={{ $value | humanizePercentage }}
+            可能是 Milvus 向量库连接异常、缓存阈值过高(0.80)、
+            或研究主题高度多样化导致无法命中。
+            建议: 检查 Milvus 连接状态和 collection 数据量。
+
+      # =======================================================================
+      # 5. PII 脱敏速率异常激增
+      # =======================================================================
+      - alert: PiiDetectionSpike
+        expr: |
+          rate(deepresearch_security_pii_masked_total_total[5m]) > 10
+        for: 5m
+        labels:
+          severity: warning
+          component: security
+        annotations:
+          summary: "PII 脱敏速率异常: > 10/min"
+          description: >
+            类型={{ $labels.type }} 速率={{ $value | humanize }}/min
+            用户输入中检测到大量敏感信息。
+            可能原因: 正常的企业数据查询、配置文件误粘贴、或测试脚本。
+
+      # =======================================================================
+      # 6. Prompt 注入检测激增
+      # =======================================================================
+      - alert: InjectionDetectionSpike
+        expr: |
+          rate(deepresearch_security_injection_detected_total_total[5m]) > 5
+        for: 5m
+        labels:
+          severity: critical
+          component: security
+        annotations:
+          summary: "Prompt 注入检测激增: > 5/min"
+          description: >
+            模式={{ $labels.pattern }} 速率={{ $value | humanize }}/min
+            检测到疑似 Prompt 注入攻击行为。
+            建议: 立即检查安全日志 (logs/research.log 中 SECURITY 前缀)，
+            确认 IP 来源并考虑临时封禁。
+
+      # =======================================================================
+      # 7. 工作流执行失败
+      # =======================================================================
+      - alert: WorkflowExecutionFailure
+        expr: |
+          rate(deepresearch_workflow_completed_total_total{status="error"}[10m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+          component: workflow
+        annotations:
+          summary: "工作流执行失败"
+          description: >
+            Intent={{ $labels.intent }}
+            工作流节点出现异常，请检查 logs/research.log 中的 ERROR 日志。
+            常见原因: DeepSeek API 超时、JSON 解析失败、Milvus 连接断开。
+
+      # =======================================================================
+      # 8. 报告质量评估分数过低
+      # =======================================================================
+      - alert: EvalScoreLow
+        expr: |
+          deepresearch_eval_score > 0 and deepresearch_eval_score < 3.0
+        for: 10m
+        labels:
+          severity: warning
+          component: quality
+        annotations:
+          summary: "报告质量评估分数 < 3.0/5.0"
+          description: >
+            当前分数={{ $value }}/5.0
+            连续多次低分说明模型输出质量下降。
+            建议: 检查 DeepSeek V4 模型状态、查看 EvalAgent 日志
+            确认评估维度得分分布、考虑优化 Prompt 模板。
+
+      # =======================================================================
+      # 9. CircuitBreaker 打开（Pro→Flash 降级）
+      # =======================================================================
+      - alert: CircuitBreakerOpen
+        expr: |
+          resilience4j_circuitbreaker_state{state="open", name=~"llm-circuit-breaker|search-circuit-breaker"} == 1
+        for: 2m
+        labels:
+          severity: critical
+          component: resilience
+        annotations:
+          summary: "CircuitBreaker 已打开 — {{ $labels.name }}"
+          description: >
+            熔断器 {{ $labels.name }} 处于 OPEN 状态超过2分钟。
+            Pro 模型或 Search 引擎可能严重故障。
+            建议: 检查对应服务的健康状态、API Key 有效期、
+            网络连通性。熔断器将在半开状态自动尝试恢复。

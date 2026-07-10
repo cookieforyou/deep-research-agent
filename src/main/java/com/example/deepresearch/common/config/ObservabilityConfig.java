@@ -1,6 +1,7 @@
 package com.example.deepresearch.common.config;
 
 import io.micrometer.core.aop.TimedAspect;
+import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.observation.ObservationRegistry;
 import io.micrometer.observation.aop.ObservedAspect;
@@ -8,6 +9,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * 可观测性配置 — 启用 {@code @Timed} 和 {@code @Observed} AOP 切面.
@@ -77,5 +80,25 @@ public class ObservabilityConfig {
     public ObservedAspect observedAspect(ObservationRegistry observationRegistry) {
         log.info("[Observability] @Observed AOP 切面已注册");
         return new ObservedAspect(observationRegistry);
+    }
+
+    /**
+     * 注册评估分数 Gauge — 供 Prometheus 告警规则 #8 (EvalScoreLow) 使用.
+     * <p>
+     * 返回 {@link AtomicReference} 实例，由 {@code EvalAgent} 在每次评估完成后更新。
+     * Prometheus 每次抓取时读取当前值。
+     * </p>
+     *
+     * @param registry Micrometer MeterRegistry（自动注入）
+     * @return AtomicDouble 实例（供 EvalAgent 注入并更新）
+     */
+    @Bean
+    public AtomicReference<Double> evalScoreGauge(MeterRegistry registry) {
+        AtomicReference<Double> score = new AtomicReference<>(0.0);
+        Gauge.builder("deepresearch.eval.score", score, AtomicReference::get)
+            .description("Latest EvalAgent report quality score (0.0-5.0)")
+            .register(registry);
+        log.info("[Observability] eval.score Gauge 已注册 (初始值=0.0)");
+        return score;
     }
 }

@@ -1,6 +1,8 @@
 package com.example.deepresearch.tool.search;
 
 import com.example.deepresearch.common.model.SearchResult;
+import com.example.deepresearch.common.observability.BusinessMetrics;
+import com.example.deepresearch.common.observability.WorkflowTracingHelper;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import org.slf4j.Logger;
@@ -8,6 +10,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Supplier;
 
 /**
@@ -42,65 +45,94 @@ public class ResilientSearchTool implements SearchTool {
     private final SearchTool primary;
     private final SearchTool fallback;
     private final CircuitBreaker circuitBreaker;
+    private final WorkflowTracingHelper tracingHelper;
+    private final BusinessMetrics businessMetrics;
 
     public ResilientSearchTool(
         SearchTool primary,
         SearchTool fallback,
-        CircuitBreakerRegistry cbRegistry
+        CircuitBreakerRegistry cbRegistry,
+        WorkflowTracingHelper tracingHelper,
+        BusinessMetrics businessMetrics
     ) {
         this.primary = primary;
         this.fallback = fallback;
         this.circuitBreaker = cbRegistry.circuitBreaker("search-circuit-breaker");
+        this.tracingHelper = tracingHelper;
+        this.businessMetrics = businessMetrics;
         log.info("ResilientSearchTool 初始化完成: primary={}, fallback={}",
             primary.getEngineName(), fallback.getEngineName());
     }
 
     @Override
     public List<SearchResult> search(String query, int count) {
-        Supplier<List<SearchResult>> primaryCall = () -> {
-            log.debug("[ResilientSearch] 调用主力引擎 {}: query='{}'", primary.getEngineName(), query);
-            return primary.search(query, count);
-        };
+        return tracingHelper.observeWithHighCardinality("deepresearch.search",
+            Map.of("engine", primary.getEngineName()),
+            Map.of("query", query),
+            () -> {
+                long startTime = System.currentTimeMillis();
 
-        Supplier<List<SearchResult>> fallbackCall = () -> {
-            // 仅在熔断器 OPEN 时打 WARN（跳过 Bocha 直接走 Tavily），
-            // 其他异常降级的情况已由 catch 块统一记录日志
-            if (circuitBreaker.getState() == CircuitBreaker.State.OPEN) {
-                log.warn("[ResilientSearch] 熔断器已打开，跳过 {} 直接使用 {}: query='{}'",
-                    primary.getEngineName(), fallback.getEngineName(), query);
-            }
-            return fallback.search(query, count);
-        };
+                Supplier<List<SearchResult>> primaryCall = () -> {
+                    log.debug("[ResilientSearch] 调用主力引擎 {}: query='{}'", primary.getEngineName(), query);
+                    return primary.search(query, count);
+                };
 
-        Supplier<List<SearchResult>> decorated = circuitBreaker.decorateSupplier(primaryCall);
-        try {
-            List<SearchResult> results = decorated.get();
+                Supplier<List<SearchResult>> fallbackCall = () -> {
+                    if (circuitBreaker.getState() == CircuitBreaker.State.OPEN) {
+                        log.warn("[ResilientSearch] 熔断器已打开，跳过 {} 直接使用 {}: query='{}'",
+                            primary.getEngineName(), fallback.getEngineName(), query);
+                    }
+                    return fallback.search(query, count);
+                };
 
-            // Bocha 成功但返回空结果（罕见情况）
-            if (results.isEmpty() && fallback.isAvailable()) {
-                log.debug("[ResilientSearch] {} 返回空结果: query='{}'",
-                    primary.getEngineName(), query);
-            }
-            return results;
+                Supplier<List<SearchResult>> decorated = circuitBreaker.decorateSupplier(primaryCall);
+                try {
+                    List<SearchResult> results = decorated.get();
+                    long latencyMs = System.currentTimeMillis() - startTime;
 
-        } catch (Exception e) {
-            // CircuitBreaker 触发或 Bocha 调用失败 → 降级到备用引擎
-            log.warn("[ResilientSearch] {} 失败 ({}), 切换到 {}: query='{}'",
-                primary.getEngineName(), e.getMessage(), fallback.getEngineName(), query);
+                    // 记录主力搜索成功指标
+                    businessMetrics.recordSearchCall(primary.getEngineName(), "success", latencyMs);
+                    businessMetrics.recordSearchResults(primary.getEngineName(), results.size());
 
-            try {
-                List<SearchResult> fallbackResults = fallbackCall.get();
-                if (fallbackResults.isEmpty()) {
-                    log.error("[ResilientSearch] 所有搜索引擎均不可用 (Bocha失败, {}返回空): query='{}'",
-                        fallback.getEngineName(), query);
+                    if (results.isEmpty() && fallback.isAvailable()) {
+                        log.debug("[ResilientSearch] {} 返回空结果: query='{}'",
+                            primary.getEngineName(), query);
+                    }
+                    return results;
+
+                } catch (Exception e) {
+                    long primaryLatencyMs = System.currentTimeMillis() - startTime;
+                    log.warn("[ResilientSearch] {} 失败 ({}), 切换到 {}: query='{}'",
+                        primary.getEngineName(), e.getMessage(), fallback.getEngineName(), query);
+
+                    // 记录主力搜索失败 + 降级事件
+                    businessMetrics.recordSearchCall(primary.getEngineName(), "error", primaryLatencyMs);
+                    businessMetrics.recordSearchFallback(primary.getEngineName(), fallback.getEngineName());
+
+                    try {
+                        long fallbackStart = System.currentTimeMillis();
+                        List<SearchResult> fallbackResults = fallbackCall.get();
+                        long fallbackLatencyMs = System.currentTimeMillis() - fallbackStart;
+
+                        // 记录备用搜索成功
+                        businessMetrics.recordSearchCall(fallback.getEngineName(),
+                            fallbackResults.isEmpty() ? "empty" : "success", fallbackLatencyMs);
+                        businessMetrics.recordSearchResults(fallback.getEngineName(), fallbackResults.size());
+
+                        if (fallbackResults.isEmpty()) {
+                            log.error("[ResilientSearch] 所有搜索引擎均不可用 (Bocha失败, {}返回空): query='{}'",
+                                fallback.getEngineName(), query);
+                        }
+                        return fallbackResults;
+                    } catch (Exception fallbackError) {
+                        long fallbackLatencyMs = System.currentTimeMillis() - startTime - primaryLatencyMs;
+                        businessMetrics.recordSearchCall(fallback.getEngineName(), "error", fallbackLatencyMs);
+                        log.error("[ResilientSearch] {} 也抛出异常, 所有搜索引擎不可用: query='{}', error={}",
+                            fallback.getEngineName(), query, fallbackError.getMessage());
+                        return Collections.emptyList();
+                    }
                 }
-                return fallbackResults;
-            } catch (Exception fallbackError) {
-                log.error("[ResilientSearch] {} 也抛出异常, 所有搜索引擎不可用: query='{}', error={}",
-                    fallback.getEngineName(), query, fallbackError.getMessage());
-                return Collections.emptyList();
-            }
-        }
+            });
     }
 
     @Override

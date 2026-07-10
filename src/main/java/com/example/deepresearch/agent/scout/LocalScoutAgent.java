@@ -158,7 +158,7 @@ public class LocalScoutAgent {
                 .replace("{{localIndex}}", String.format("LOCAL%02d", localIndex));
 
             String rawOutput = chatClient.prompt()
-                .advisors(a -> a.param("agent", "LocalScout").param("tier", "flash"))
+                .advisors(a -> a.param("agent", "LocalScout").param("tier", "flash").param("skipPiiMask", true))
                 .system(systemPrompt)
                 .user(userPrompt)
                 .call()

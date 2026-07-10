@@ -72,6 +72,11 @@ public class PiiMaskingAdvisor implements BaseAdvisor {
             return request;
         }
 
+        // 跳过外部数据（搜索结果等公开数据无需脱敏，避免误匹配和性能浪费）
+        if (Boolean.TRUE.equals(request.context().get("skipPiiMask"))) {
+            return request;
+        }
+
         Prompt originalPrompt = request.prompt();
         List<Message> originalMessages = originalPrompt.getInstructions();
         List<Message> tokenizedMessages = new ArrayList<>();

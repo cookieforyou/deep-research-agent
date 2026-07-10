@@ -34,7 +34,7 @@ import java.util.Optional;
  *   → write(finalReport="...")
  * </pre>
  *
- * @see org.bsc.langgraph4j.state.AgentState
+ * @see AgentState
  */
 public class ResearchState extends AgentState {
 

@@ -323,9 +323,10 @@ management:
       prometheus:
         enabled: true
       # OTLP — 推送到 OpenTelemetry Collector（生产环境启用）
+      # 注意: endpoint 只需基础 URL，Micrometer 自动追加 /v1/metrics
       otlp:
         enabled: ${OTEL_METRICS_ENABLED:false}
-        endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318/v1/metrics}
+        url: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}
         step: 30s
     tags:
       application: deep-research-agent

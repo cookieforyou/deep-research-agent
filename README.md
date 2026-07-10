@@ -42,6 +42,7 @@
 │   L1 短期 (Redis)  L2 语义 (Milvus)  L3 长期 (PG)         │
 ├─────────────────────────────────────────────────────────┤
 │        基础设施 (DeepSeek V4 / Milvus / PG / Redis)      │
+│        可观测性 (Prometheus / Grafana / Jaeger)           │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -57,7 +58,8 @@
 - ✨ **引用校验**: 自动检测并移除 LLM 幻觉产生的虚假引用
 - 📡 **SSE 实时推送**: 细粒度进度事件（按 Agent 阶段推送，含 `CACHE_HIT` 阶段）
 - 🏢 **多租户**: JWT 认证 + Milvus tenant_id 硬隔离
-- 📈 **可观测性**: OpenTelemetry Tracing + Token 成本监控
+- 📈 **可观测性**: OpenTelemetry Tracing + Token 成本监控 + Prometheus 指标采集 + Grafana 4 仪表盘 (44 面板) + 9 条告警规则
+- 🐳 **一键部署**: Docker Compose 启动完整可观测性栈 (Prometheus + Grafana + OTel Collector + Jaeger)
 - 🛡️ **韧性**: Resilience4j 重试/熔断 + 搜索并发限流
 - 🎯 **异步质量评估**: EvalAgent 在 Writer 完成后异步评估报告质量（5 维度 1-5 分制），结果持久化并支持滑动窗口告警
 - 🔄 **模型降级**: Pro 模型不可用时自动降级至 Flash（CircuitBreaker + Fallback），保证研究不中断
@@ -119,7 +121,20 @@ curl -X POST http://localhost:8080/api/research \
 # 返回: {"sessionId":"a1b2c3d4","status":"IN_PROGRESS"}
 ```
 
-### 4. 订阅 SSE 进度流
+### 4. 启动可观测性栈（可选）
+
+```bash
+cd observability && docker compose up -d
+
+# Prometheus: http://localhost:9090
+# Grafana:    http://localhost:3000 (admin/admin)
+# Jaeger:     http://localhost:16686 (启用 OTLP 后可见 trace)
+
+# 启用 OTLP 追踪导出：
+OTEL_METRICS_ENABLED=true mvn spring-boot:run
+```
+
+### 5. 订阅 SSE 进度流
 
 ```bash
 curl -N http://localhost:8080/api/research/a1b2c3d4/stream \
@@ -226,12 +241,14 @@ deep-research:
 | GET | `/api/research/{id}/stream` | SSE 进度流 |
 | GET | `/api/research/{id}` | 查询状态 |
 | GET | `/actuator/health` | 健康检查 |
-| GET | `/actuator/metrics` | Prometheus 指标 |
+| GET | `/actuator/prometheus` | Prometheus 指标端点 |
+| GET | `/actuator/metrics` | 指标列表 |
 
 ## 项目文档
 
 - `CLAUDE.md` — 项目开发指南（架构、约定、常见任务、修复记录）
 - `docs/DeepResearch 多 Agent 行业深度研究助手 - 需求分析与技术实现报告.md` — 完整需求分析与技术方案
+- `docs/可观测性功能开发实现报告.md` — 可观测性 Phase 1-4 实施方案与落地记录
 
 ## 技术决策
 
@@ -248,6 +265,9 @@ deep-research:
 | Prompt | 独立 .st 文件 | 不编译即可调优 |
 | 引用校验 | 正则 + 合法 ID 集 | O(n) 确定性校验，不依赖 LLM |
 | 去重过滤 | 代码级（URL+标题+域名） | 比 LLM Judge 快且零 token 成本 |
+| 可观测性 | Micrometer + Prometheus + Grafana | Spring Boot Actuator 原生集成，零侵入 Token 追踪 |
+| 追踪 | OpenTelemetry (OTLP) + Jaeger | 工作流全链路可观测 |
+| 告警 | Prometheus Rules (9 条) | LLM 延迟/成本/安全/质量全覆盖 |
 
 ## License
 

@@ -9,6 +9,8 @@ import com.example.deepresearch.cache.SemanticCacheService;
 import com.example.deepresearch.cache.SemanticCacheService.CacheResult;
 import com.example.deepresearch.common.config.DeepResearchProperties;
 import com.example.deepresearch.common.model.EvalResult;
+import com.example.deepresearch.common.observability.BusinessMetrics;
+import com.example.deepresearch.common.observability.TokenUsageTracker;
 import com.example.deepresearch.memory.MemoryManager;
 import com.example.deepresearch.security.PiiMaskingService;
 import com.example.deepresearch.workflow.ResearchWorkflow;
@@ -61,6 +63,8 @@ public class ResearchOrchestratorService {
     private final ObjectMapper objectMapper;
     private final DeepResearchProperties properties;
     private final PiiMaskingService piiMaskingService;
+    private final BusinessMetrics businessMetrics;
+    private final TokenUsageTracker tokenUsageTracker;
 
     /** 活跃会话状态缓存（sessionId → 最新 ResearchState） */
     private final ConcurrentHashMap<String, ResearchState> activeSessions = new ConcurrentHashMap<>();
@@ -77,7 +81,9 @@ public class ResearchOrchestratorService {
         EvalAgent evalAgent,
         ObjectMapper objectMapper,
         DeepResearchProperties properties,
-        PiiMaskingService piiMaskingService
+        PiiMaskingService piiMaskingService,
+        BusinessMetrics businessMetrics,
+        TokenUsageTracker tokenUsageTracker
     ) {
         this.researchWorkflow = researchWorkflow;
         this.progressPublisher = progressPublisher;
@@ -88,6 +94,8 @@ public class ResearchOrchestratorService {
         this.objectMapper = objectMapper;
         this.properties = properties;
         this.piiMaskingService = piiMaskingService;
+        this.businessMetrics = businessMetrics;
+        this.tokenUsageTracker = tokenUsageTracker;
     }
 
     /**
@@ -232,6 +240,7 @@ public class ResearchOrchestratorService {
      * 执行工作流并处理结果.
      */
     private void executeWorkflow(String sessionId, Map<String, Object> initialState) {
+        long startTime = System.currentTimeMillis();
         try {
             // 获取编译后的工作流
             CompiledGraph<ResearchState> graph = researchWorkflow.getCompiledGraph();
@@ -243,7 +252,8 @@ public class ResearchOrchestratorService {
             // 执行工作流 (LangGraph4j invoke 接受 Map<String, Object> 初始状态)
             log.info("[Orchestrator] 工作流开始执行: sessionId={}", sessionId);
             Optional<ResearchState> result = graph.invoke(initialState);
-            log.info("[Orchestrator] 工作流执行完成: sessionId={}", sessionId);
+            long durationMs = System.currentTimeMillis() - startTime;
+            log.info("[Orchestrator] 工作流执行完成: sessionId={}, duration={}ms", sessionId, durationMs);
 
             // 处理结果
             if (result.isPresent()) {
@@ -251,9 +261,17 @@ public class ResearchOrchestratorService {
                 activeSessions.put(sessionId, finalState);
 
                 if (finalState.hasError()) {
+                    businessMetrics.recordWorkflowCompleted(
+                        finalState.intent() != null ? finalState.intent() : "unknown",
+                        "error", durationMs);
                     progressPublisher.error(sessionId,
                         new RuntimeException(finalState.error()));
                 } else {
+                    // 记录工作流成功指标
+                    String intent = finalState.intent() != null ? finalState.intent() : "research";
+                    businessMetrics.recordWorkflowCompleted(intent, "success", durationMs);
+                    tokenUsageTracker.clearSession(sessionId);
+
                     // 推送最终完成事件
                     int wordCount = countWords(finalState.finalReport());
                     progressPublisher.publish(sessionId, new ProgressEvent(
@@ -265,11 +283,14 @@ public class ResearchOrchestratorService {
                     persistResearchMemory(sessionId, finalState, wordCount);
                 }
             } else {
+                businessMetrics.recordWorkflowCompleted("unknown", "error", durationMs);
                 progressPublisher.error(sessionId,
                     new RuntimeException("工作流未返回有效状态"));
             }
 
         } catch (Exception e) {
+            long durationMs = System.currentTimeMillis() - startTime;
+            businessMetrics.recordWorkflowCompleted("unknown", "error", durationMs);
             log.error("[Orchestrator] 工作流执行异常: sessionId={}", sessionId, e);
             progressPublisher.error(sessionId, e);
         } finally {

@@ -1,0 +1,16 @@
+# =============================================================================
+# Grafana Dashboard Provider — 自动加载 dashboard JSON 文件
+# =============================================================================
+apiVersion: 1
+
+providers:
+  - name: 'DeepResearch Dashboards'
+    orgId: 1
+    folder: 'Deep Research'
+    type: file
+    disableDeletion: true
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards
+      foldersFromFilesStructure: false

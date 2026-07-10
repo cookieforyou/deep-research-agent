@@ -733,7 +733,11 @@ deep-research-agent/
  │       ├── model/                                # Evidence, Finding, SearchPlan, PlanResult, AnalysisResult, WriteResult, EvalResult 等 11 个 Record
  │       ├── util/JsonParseUtils.java              # LLM JSON 安全解析
  │       ├── util/PromptSplitUtils.java            # Prompt System/User 分离工具
- │       ├── observability/TokenUsageTracker.java  # Token 成本监控
+ │       ├── observability/                          # 可观测性（Metrics + Tracing）
+ │       │   ├── TokenUsageTracker.java              # LLM Token/成本/延迟指标注册
+ │       │   ├── TokenTrackingAdvisor.java           # BaseAdvisor 透明拦截 ChatClient
+ │       │   ├── BusinessMetrics.java                # 业务指标集中注册
+ │       │   └── WorkflowTracingHelper.java          # 工作流节点 Tracing + MDC traceId
  │       └── constant/AgentType.java
  │
  ├── src/main/resources/
@@ -770,7 +774,7 @@ deep-research-agent/
 | Phase 7: API 层 | ResearchController (REST+SSE), DTO, ResearchOrchestratorService | ✅ |
 | Phase 8: 安全层 | SecurityConfig (WebFlux), TenantJwtAuthenticationConverter, TenantContext, **PiiMaskingService + PiiMaskingAdvisor (可逆标记化), PromptInjectionChecker (规则引擎), SecurityLogService** | ✅ |
 | Phase 9: 记忆系统 | MemoryManager, ShortTermMemoryService(Redis), **SemanticMemoryService(Milvus)**, LongTermMemoryService(PG) | ✅ |
-| Phase 10: 可观测性 | TokenUsageTracker (Micrometer), 日志体系, CLAUDE.md, README.md, 本文档 | ❎ |
+| Phase 10: 可观测性 | Prometheus + Grafana + OpenTelemetry + Jaeger 完整栈: TokenTrackingAdvisor (BaseAdvisor 零侵入), BusinessMetrics (9 类指标), WorkflowTracingHelper (全工作流 Span), 4 仪表盘 (44 面板), 9 条告警规则, Docker Compose 一键部署, Token 成本实时追踪 | ✅ |
 | Phase 11: 性能优化 | LocalScoutAgent 串行→并行, WebScoutAgent Semaphore 调优, VectorStoreService 逐个嵌入 | ✅ |
 | Phase 12: Bug 修复 | chunkText 死循环, Float→Double, Planner current_time, 单例状态泄漏 | ✅ |
 | Phase 13: LLM 评估 | EvalAgent (Flash T=0.05), EvalResult 模型, eval.st Prompt, ResearchHistory.evalScores, 滑动窗口告警, Writer NPE 修复, EvalAgent 空输出修复 | ✅ |

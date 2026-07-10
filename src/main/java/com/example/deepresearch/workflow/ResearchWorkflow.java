@@ -12,6 +12,7 @@ import com.example.deepresearch.api.dto.ProgressEvent.ResearchStage;
 import com.example.deepresearch.common.config.DeepResearchProperties;
 import com.example.deepresearch.common.model.*;
 import com.example.deepresearch.common.observability.TokenTrackingAdvisor;
+import com.example.deepresearch.common.observability.WorkflowTracingHelper;
 import com.example.deepresearch.memory.MemoryManager;
 import com.example.deepresearch.rag.CitationValidator;
 import com.example.deepresearch.service.ProgressEventPublisher;
@@ -89,6 +90,7 @@ public class ResearchWorkflow {
     private final ResourceLoader resourceLoader;
     private final MemoryManager memoryManager;
     private final TokenTrackingAdvisor tokenTrackingAdvisor;
+    private final WorkflowTracingHelper tracingHelper;
 
     /** 编译后的可执行工作流 */
     private volatile CompiledGraph<ResearchState> compiledGraph;
@@ -105,7 +107,8 @@ public class ResearchWorkflow {
         ChatModel chatModel,
         ResourceLoader resourceLoader,
         MemoryManager memoryManager,
-        TokenTrackingAdvisor tokenTrackingAdvisor
+        TokenTrackingAdvisor tokenTrackingAdvisor,
+        WorkflowTracingHelper tracingHelper
     ) {
         this.intentRouter = intentRouter;
         this.planner = planner;
@@ -122,6 +125,7 @@ public class ResearchWorkflow {
         this.resourceLoader = resourceLoader;
         this.memoryManager = memoryManager;
         this.tokenTrackingAdvisor = tokenTrackingAdvisor;
+        this.tracingHelper = tracingHelper;
     }
 
     // =========================== 工作流编译 ===========================
@@ -185,20 +189,24 @@ public class ResearchWorkflow {
     private AsyncNodeAction<ResearchState> intentRouteNode() {
         return state -> CompletableFuture.supplyAsync(() -> {
             String sessionId = state.sessionId();
-            progressPublisher.publish(sessionId,
-                ProgressEvent.started(sessionId, ResearchStage.INTENT_ROUTING,
-                    "intent_route", "正在判断查询意图..."));
+            return tracingHelper.observe("workflow.intent_route",
+                Map.of("sessionId", sessionId),
+                () -> {
+                    progressPublisher.publish(sessionId,
+                        ProgressEvent.started(sessionId, ResearchStage.INTENT_ROUTING,
+                            "intent_route", "正在判断查询意图..."));
 
-            RouteResult result = intentRouter.route(state.query());
+                    RouteResult result = intentRouter.route(state.query());
 
-            progressPublisher.publish(sessionId,
-                ProgressEvent.completed(sessionId, ResearchStage.INTENT_ROUTING,
-                    "intent_route", "意图判断完成: " + result.intent()));
+                    progressPublisher.publish(sessionId,
+                        ProgressEvent.completed(sessionId, ResearchStage.INTENT_ROUTING,
+                            "intent_route", "意图判断完成: " + result.intent()));
 
-            return Map.of(
-                "intent", result.intent(),
-                "messages", List.of("意图: " + result.intent() + ", 理由: " + result.reasoning())
-            );
+                    return Map.of(
+                        "intent", result.intent(),
+                        "messages", List.of("意图: " + result.intent() + ", 理由: " + result.reasoning())
+                    );
+                });
         }, virtualThreadExecutor);
     }
 
@@ -212,49 +220,53 @@ public class ResearchWorkflow {
     private AsyncNodeAction<ResearchState> directAnswerNode() {
         return state -> CompletableFuture.supplyAsync(() -> {
             String sessionId = state.sessionId();
-            progressPublisher.publish(sessionId,
-                ProgressEvent.started(sessionId, ResearchStage.PLANNING,
-                    "direct_answer", "正在生成直接回答..."));
+            return tracingHelper.observe("workflow.direct_answer",
+                Map.of("sessionId", sessionId),
+                () -> {
+                    progressPublisher.publish(sessionId,
+                        ProgressEvent.started(sessionId, ResearchStage.PLANNING,
+                            "direct_answer", "正在生成直接回答..."));
 
-            try {
-                // 加载 Direct Answer Prompt 模板
-                Resource resource = resourceLoader.getResource(
-                    "classpath:prompts/direct-answer.st");
-                String promptTemplate = resource.getContentAsString(StandardCharsets.UTF_8);
+                    try {
+                        // 加载 Direct Answer Prompt 模板
+                        Resource resource = resourceLoader.getResource(
+                            "classpath:prompts/direct-answer.st");
+                        String promptTemplate = resource.getContentAsString(StandardCharsets.UTF_8);
 
-                // 分离 system/user（架构级注入防护）
-                PromptParts parts = PromptSplitUtils.split(promptTemplate);
-                String userPrompt = parts.user().replace("{{query}}", state.query());
+                        // 分离 system/user（架构级注入防护）
+                        PromptParts parts = PromptSplitUtils.split(promptTemplate);
+                        String userPrompt = parts.user().replace("{{query}}", state.query());
 
-                // 调用 LLM（system/user 分离，使用 Flash 模型快速低成本）
-                // 注册 TokenTrackingAdvisor 确保 Token 用量可追踪
-                String directAnswer = ChatClient.builder(chatModel)
-                    .defaultAdvisors(tokenTrackingAdvisor)
-                    .build()
-                    .prompt()
-                    .advisors(a -> a.param("agent", "DirectAnswer").param("tier", "flash"))
-                    .system(parts.system())
-                    .user(userPrompt)
-                    .call()
-                    .content();
+                        // 调用 LLM（system/user 分离，使用 Flash 模型快速低成本）
+                        // 注册 TokenTrackingAdvisor 确保 Token 用量可追踪
+                        String directAnswer = ChatClient.builder(chatModel)
+                            .defaultAdvisors(tokenTrackingAdvisor)
+                            .build()
+                            .prompt()
+                            .advisors(a -> a.param("agent", "DirectAnswer").param("tier", "flash"))
+                            .system(parts.system())
+                            .user(userPrompt)
+                            .call()
+                            .content();
 
-                // 截断过长回答（Direct 模式限制简洁性）
-                if (directAnswer != null && directAnswer.length() > 2000) {
-                    directAnswer = directAnswer.substring(0, 2000) + "\n\n...（回答已截断）";
-                }
+                        // 截断过长回答（Direct 模式限制简洁性）
+                        if (directAnswer != null && directAnswer.length() > 2000) {
+                            directAnswer = directAnswer.substring(0, 2000) + "\n\n...（回答已截断）";
+                        }
 
-                progressPublisher.publish(sessionId,
-                    ProgressEvent.completed(sessionId, ResearchStage.COMPLETED,
-                        "direct_answer", "回答生成完成"));
+                        progressPublisher.publish(sessionId,
+                            ProgressEvent.completed(sessionId, ResearchStage.COMPLETED,
+                                "direct_answer", "回答生成完成"));
 
-                return Map.of("directAnswer",
-                    directAnswer != null ? directAnswer : "抱歉，暂时无法回答。" );
+                        return Map.of("directAnswer",
+                            directAnswer != null ? directAnswer : "抱歉，暂时无法回答。" );
 
-            } catch (Exception e) {
-                log.error("[direct_answer] LLM 调用失败", e);
-                return Map.of("directAnswer",
-                    "抱歉，生成回答时出现错误。请重试或使用深度研究模式。");
-            }
+                    } catch (Exception e) {
+                        log.error("[direct_answer] LLM 调用失败", e);
+                        return Map.of("directAnswer",
+                            "抱歉，生成回答时出现错误。请重试或使用深度研究模式。");
+                    }
+                });
         }, virtualThreadExecutor);
     }
 
@@ -268,29 +280,33 @@ public class ResearchWorkflow {
     private AsyncNodeAction<ResearchState> planNode() {
         return state -> CompletableFuture.supplyAsync(() -> {
             String sessionId = state.sessionId();
-            progressPublisher.publish(sessionId,
-                ProgressEvent.started(sessionId, ResearchStage.PLANNING,
-                    "plan", "正在拆解研究问题、规划搜索路径..."));
+            return tracingHelper.observe("workflow.plan",
+                Map.of("sessionId", sessionId),
+                () -> {
+                    progressPublisher.publish(sessionId,
+                        ProgressEvent.started(sessionId, ResearchStage.PLANNING,
+                            "plan", "正在拆解研究问题、规划搜索路径..."));
 
-            PlanResult result = planner.plan(state.query(), state.memoryContext());
+                    PlanResult result = planner.plan(state.query(), state.memoryContext());
 
-            // 提取搜索查询词列表（供 dual_search 使用）
-            List<String> queries = result.searchPlans().stream()
-                .sorted(SearchPlan::compareByPriority)
-                .map(SearchPlan::query)
-                .toList();
+                    // 提取搜索查询词列表（供 dual_search 使用）
+                    List<String> queries = result.searchPlans().stream()
+                        .sorted(SearchPlan::compareByPriority)
+                        .map(SearchPlan::query)
+                        .toList();
 
-            progressPublisher.publish(sessionId,
-                ProgressEvent.completed(sessionId, ResearchStage.PLANNING,
-                    "plan", String.format("规划完成: %d 个子问题, %d 个搜索计划",
-                        result.subQuestions().size(), result.searchPlans().size())));
+                    progressPublisher.publish(sessionId,
+                        ProgressEvent.completed(sessionId, ResearchStage.PLANNING,
+                            "plan", String.format("规划完成: %d 个子问题, %d 个搜索计划",
+                                result.subQuestions().size(), result.searchPlans().size())));
 
-            return Map.of(
-                "subQuestions", result.subQuestions(),
-                "reportOutline", result.reportOutline(),
-                "searchPlan", result.searchPlans(),
-                "messages", List.of("大纲: " + result.reportOutline())
-            );
+                    return Map.of(
+                        "subQuestions", result.subQuestions(),
+                        "reportOutline", result.reportOutline(),
+                        "searchPlan", result.searchPlans(),
+                        "messages", List.of("大纲: " + result.reportOutline())
+                    );
+                });
         }, virtualThreadExecutor);
     }
 
@@ -304,82 +320,86 @@ public class ResearchWorkflow {
     private AsyncNodeAction<ResearchState> dualSearchNode() {
         return state -> CompletableFuture.supplyAsync(() -> {
             String sessionId = state.sessionId();
-            // 单轮模式：始终使用 Planner 的搜索计划
-            List<String> queries = state.searchPlan().stream()
-                .sorted(SearchPlan::compareByPriority)
-                .map(SearchPlan::query)
-                .filter(q -> q != null && !q.isEmpty())
-                .collect(Collectors.toList());
+            return tracingHelper.observe("workflow.dual_search",
+                Map.of("sessionId", sessionId),
+                () -> {
+                    // 单轮模式：始终使用 Planner 的搜索计划
+                    List<String> queries = state.searchPlan().stream()
+                        .sorted(SearchPlan::compareByPriority)
+                        .map(SearchPlan::query)
+                        .filter(q -> q != null && !q.isEmpty())
+                        .collect(Collectors.toList());
 
-            log.info("[dual_search] 开始双源检索: {} 个查询", queries.size());
+                    log.info("[dual_search] 开始双源检索: {} 个查询", queries.size());
 
-            // 并行执行 Web 和 Local 检索（CompletableFuture + Virtual Threads）
-            try {
-                // Web 搜索子任务
-                CompletableFuture<List<Evidence>> webFuture = CompletableFuture.supplyAsync(() -> {
-                    progressPublisher.publish(sessionId,
-                        ProgressEvent.searching(sessionId, "Web", 0, queries.size()));
-                    List<Evidence> results = webScout.search(state.query(), queries);
+                    // 并行执行 Web 和 Local 检索（CompletableFuture + Virtual Threads）
+                    try {
+                        // Web 搜索子任务
+                        CompletableFuture<List<Evidence>> webFuture = CompletableFuture.supplyAsync(() -> {
+                            progressPublisher.publish(sessionId,
+                                ProgressEvent.searching(sessionId, "Web", 0, queries.size()));
+                            List<Evidence> results = webScout.search(state.query(), queries);
 
-                    // 进度反馈
-                    for (int i = 0; i < queries.size(); i++) {
-                        final int idx = i;
+                            // 进度反馈
+                            for (int i = 0; i < queries.size(); i++) {
+                                final int idx = i;
+                                progressPublisher.publish(sessionId,
+                                    ProgressEvent.searching(sessionId, "Web", idx + 1, queries.size()));
+                            }
+                            return results;
+                        }, virtualThreadExecutor);
+
+                        // Local 检索子任务
+                        CompletableFuture<List<Evidence>> localFuture = CompletableFuture.supplyAsync(() -> {
+                            progressPublisher.publish(sessionId,
+                                ProgressEvent.searching(sessionId, "Local", 0, queries.size()));
+                            List<Evidence> results = localScout.search(
+                                state.query(), queries, state.tenantId());
+
+                            for (int i = 0; i < queries.size(); i++) {
+                                final int idx = i;
+                                progressPublisher.publish(sessionId,
+                                    ProgressEvent.searching(sessionId, "Local", idx + 1, queries.size()));
+                            }
+                            return results;
+                        }, virtualThreadExecutor);
+
+                        // 等待两个任务完成
+                        CompletableFuture.allOf(webFuture, localFuture).join();
+
+                        List<Evidence> webEvidence = webFuture.join();
+                        List<Evidence> localEvidence = localFuture.join();
+
+                        // SSE 通知：双源检索降级状态
+                        if (webEvidence.isEmpty() && !localEvidence.isEmpty()) {
+                            // 仅网络搜索不可用 → 纯 Local RAG 模式
+                            progressPublisher.publish(sessionId,
+                                ProgressEvent.completed(sessionId, ResearchStage.SEARCH_FALLBACK,
+                                    "dual_search", "网络搜索暂时不可用，研究报告仅基于本地知识库生成"));
+                        } else if (webEvidence.isEmpty() && localEvidence.isEmpty()) {
+                            // 双源均不可用 → 报告仅基于 LLM 自身知识
+                            progressPublisher.publish(sessionId,
+                                ProgressEvent.completed(sessionId, ResearchStage.SEARCH_FALLBACK,
+                                    "dual_search", "网络搜索和本地知识库均暂时不可用，报告将基于模型自身知识生成，建议稍后重试"));
+                        }
+
                         progressPublisher.publish(sessionId,
-                            ProgressEvent.searching(sessionId, "Web", idx + 1, queries.size()));
+                            ProgressEvent.completed(sessionId, ResearchStage.WEB_SEARCHING,
+                                "dual_search", String.format("检索完成: WEB=%d, LOCAL=%d",
+                                    webEvidence.size(), localEvidence.size())));
+
+                        return Map.of(
+                            "webEvidence", webEvidence,
+                            "localEvidence", localEvidence
+                        );
+
+                    } catch (Exception e) {
+                        log.error("[dual_search] 双源检索异常", e);
+                        return Map.of(
+                            "error", "双源检索失败: " + e.getMessage()
+                        );
                     }
-                    return results;
-                }, virtualThreadExecutor);
-
-                // Local 检索子任务
-                CompletableFuture<List<Evidence>> localFuture = CompletableFuture.supplyAsync(() -> {
-                    progressPublisher.publish(sessionId,
-                        ProgressEvent.searching(sessionId, "Local", 0, queries.size()));
-                    List<Evidence> results = localScout.search(
-                        state.query(), queries, state.tenantId());
-
-                    for (int i = 0; i < queries.size(); i++) {
-                        final int idx = i;
-                        progressPublisher.publish(sessionId,
-                            ProgressEvent.searching(sessionId, "Local", idx + 1, queries.size()));
-                    }
-                    return results;
-                }, virtualThreadExecutor);
-
-                // 等待两个任务完成
-                CompletableFuture.allOf(webFuture, localFuture).join();
-
-                List<Evidence> webEvidence = webFuture.join();
-                List<Evidence> localEvidence = localFuture.join();
-
-                // SSE 通知：双源检索降级状态
-                if (webEvidence.isEmpty() && !localEvidence.isEmpty()) {
-                    // 仅网络搜索不可用 → 纯 Local RAG 模式
-                    progressPublisher.publish(sessionId,
-                        ProgressEvent.completed(sessionId, ResearchStage.SEARCH_FALLBACK,
-                            "dual_search", "网络搜索暂时不可用，研究报告仅基于本地知识库生成"));
-                } else if (webEvidence.isEmpty() && localEvidence.isEmpty()) {
-                    // 双源均不可用 → 报告仅基于 LLM 自身知识
-                    progressPublisher.publish(sessionId,
-                        ProgressEvent.completed(sessionId, ResearchStage.SEARCH_FALLBACK,
-                            "dual_search", "网络搜索和本地知识库均暂时不可用，报告将基于模型自身知识生成，建议稍后重试"));
-                }
-
-                progressPublisher.publish(sessionId,
-                    ProgressEvent.completed(sessionId, ResearchStage.WEB_SEARCHING,
-                        "dual_search", String.format("检索完成: WEB=%d, LOCAL=%d",
-                            webEvidence.size(), localEvidence.size())));
-
-                return Map.of(
-                    "webEvidence", webEvidence,
-                    "localEvidence", localEvidence
-                );
-
-            } catch (Exception e) {
-                log.error("[dual_search] 双源检索异常", e);
-                return Map.of(
-                    "error", "双源检索失败: " + e.getMessage()
-                );
-            }
+                });
         }, virtualThreadExecutor);
     }
 
@@ -393,22 +413,26 @@ public class ResearchWorkflow {
     private AsyncNodeAction<ResearchState> dedupFilterNode() {
         return state -> CompletableFuture.supplyAsync(() -> {
             String sessionId = state.sessionId();
-            progressPublisher.publish(sessionId,
-                ProgressEvent.started(sessionId, ResearchStage.JUDGING,
-                    "filter", "正在去重过滤证据..."));
+            return tracingHelper.observe("workflow.filter",
+                Map.of("sessionId", sessionId),
+                () -> {
+                    progressPublisher.publish(sessionId,
+                        ProgressEvent.started(sessionId, ResearchStage.JUDGING,
+                            "filter", "正在去重过滤证据..."));
 
-            EvidenceDeduplicationService.DedupResult result = dedupService.deduplicate(
-                state.webEvidence(), state.localEvidence());
+                    EvidenceDeduplicationService.DedupResult result = dedupService.deduplicate(
+                        state.webEvidence(), state.localEvidence());
 
-            progressPublisher.publish(sessionId,
-                ProgressEvent.completed(sessionId, ResearchStage.JUDGING,
-                    "filter", String.format("去重完成: %d 条有效证据",
-                        result.dedupedEvidence().size())));
+                    progressPublisher.publish(sessionId,
+                        ProgressEvent.completed(sessionId, ResearchStage.JUDGING,
+                            "filter", String.format("去重完成: %d 条有效证据",
+                                result.dedupedEvidence().size())));
 
-            return Map.of(
-                "evidencePool", result.dedupedEvidence(),
-                "sourceIndex", result.sourceIndex()
-            );
+                    return Map.of(
+                        "evidencePool", result.dedupedEvidence(),
+                        "sourceIndex", result.sourceIndex()
+                    );
+                });
         }, virtualThreadExecutor);
     }
 
@@ -422,29 +446,33 @@ public class ResearchWorkflow {
     private AsyncNodeAction<ResearchState> analyzeNode() {
         return state -> CompletableFuture.supplyAsync(() -> {
             String sessionId = state.sessionId();
-            progressPublisher.publish(sessionId,
-                ProgressEvent.started(sessionId, ResearchStage.ANALYZING,
-                    "analyze", "正在分析证据、形成结论..."));
+            return tracingHelper.observe("workflow.analyze",
+                Map.of("sessionId", sessionId),
+                () -> {
+                    progressPublisher.publish(sessionId,
+                        ProgressEvent.started(sessionId, ResearchStage.ANALYZING,
+                            "analyze", "正在分析证据、形成结论..."));
 
-            AnalysisResult result = analyst.analyze(
-                state.query(), state.subQuestions(), state.evidencePool());
+                    AnalysisResult result = analyst.analyze(
+                        state.query(), state.subQuestions(), state.evidencePool());
 
-            progressPublisher.publish(sessionId,
-                ProgressEvent.completed(sessionId, ResearchStage.ANALYZING,
-                    "analyze", String.format("分析完成: %d 个结论, 完备性=%.0f%%, 需补搜=%s",
-                        result.findings().size(),
-                        result.completenessScore() * 100,
-                        result.needsMoreResearch())));
+                    progressPublisher.publish(sessionId,
+                        ProgressEvent.completed(sessionId, ResearchStage.ANALYZING,
+                            "analyze", String.format("分析完成: %d 个结论, 完备性=%.0f%%, 需补搜=%s",
+                                result.findings().size(),
+                                result.completenessScore() * 100,
+                                result.needsMoreResearch())));
 
-            // 使用 HashMap 而非 Map.of()，因为 Map.of() 不接受 null 值
-            // 当 LLM JSON 解析部分失败时，某些字段可能为 null
-            Map<String, Object> analyzeOutput = new java.util.HashMap<>();
-            analyzeOutput.put("findings",
-                result.findings() != null ? result.findings() : List.of());
-            analyzeOutput.put("needsMoreResearch", result.needsMoreResearch());
-            analyzeOutput.put("missingGaps",
-                result.missingGaps() != null ? result.missingGaps() : List.of());
-            return analyzeOutput;
+                    // 使用 HashMap 而非 Map.of()，因为 Map.of() 不接受 null 值
+                    // 当 LLM JSON 解析部分失败时，某些字段可能为 null
+                    Map<String, Object> analyzeOutput = new java.util.HashMap<>();
+                    analyzeOutput.put("findings",
+                        result.findings() != null ? result.findings() : List.of());
+                    analyzeOutput.put("needsMoreResearch", result.needsMoreResearch());
+                    analyzeOutput.put("missingGaps",
+                        result.missingGaps() != null ? result.missingGaps() : List.of());
+                    return analyzeOutput;
+                });
         }, virtualThreadExecutor);
     }
 
@@ -459,38 +487,42 @@ public class ResearchWorkflow {
     private AsyncNodeAction<ResearchState> writeNode() {
         return state -> CompletableFuture.supplyAsync(() -> {
             String sessionId = state.sessionId();
-            progressPublisher.publish(sessionId,
-                ProgressEvent.started(sessionId, ResearchStage.WRITING,
-                    "write", "正在撰写深度研究报告..."));
+            return tracingHelper.observe("workflow.write",
+                Map.of("sessionId", sessionId),
+                () -> {
+                    progressPublisher.publish(sessionId,
+                        ProgressEvent.started(sessionId, ResearchStage.WRITING,
+                            "write", "正在撰写深度研究报告..."));
 
-            // 步骤 1: LLM 生成报告
-            WriteResult result = writer.write(
-                state.query(), state.reportOutline(),
-                state.findings(), state.evidencePool(), state.sourceIndex());
+                    // 步骤 1: LLM 生成报告
+                    WriteResult result = writer.write(
+                        state.query(), state.reportOutline(),
+                        state.findings(), state.evidencePool(), state.sourceIndex());
 
-            // 步骤 2: 引用合法性校验
-            CitationValidator.ValidationResult validation =
-                citationValidator.validate(result.reportContent(), state.sourceIndex());
+                    // 步骤 2: 引用合法性校验
+                    CitationValidator.ValidationResult validation =
+                        citationValidator.validate(result.reportContent(), state.sourceIndex());
 
-            // 步骤 3: 追加参考资料列表
-            String finalReport = citationValidator.appendReferenceList(
-                validation.cleanedReport(), state.sourceIndex());
+                    // 步骤 3: 追加参考资料列表
+                    String finalReport = citationValidator.appendReferenceList(
+                        validation.cleanedReport(), state.sourceIndex());
 
-            // 检查字数
-            if (result.wordCount() < properties.workflow().minReportWords()) {
-                log.warn("[write] 报告字数 {} 低于最低要求 {}",
-                    result.wordCount(), properties.workflow().minReportWords());
-            }
+                    // 检查字数
+                    if (result.wordCount() < properties.workflow().minReportWords()) {
+                        log.warn("[write] 报告字数 {} 低于最低要求 {}",
+                            result.wordCount(), properties.workflow().minReportWords());
+                    }
 
-            progressPublisher.publish(sessionId,
-                ProgressEvent.completed(sessionId, ResearchStage.COMPLETED,
-                    "write", String.format("报告完成: %d 字, %d 合法引用",
-                        result.wordCount(), validation.validCitations())));
+                    progressPublisher.publish(sessionId,
+                        ProgressEvent.completed(sessionId, ResearchStage.COMPLETED,
+                            "write", String.format("报告完成: %d 字, %d 合法引用",
+                                result.wordCount(), validation.validCitations())));
 
-            return Map.of(
-                "finalReport", finalReport,
-                "messages", List.of("报告生成完成: " + result.wordCount() + " 字")
-            );
+                    return Map.of(
+                        "finalReport", finalReport,
+                        "messages", List.of("报告生成完成: " + result.wordCount() + " 字")
+                    );
+                });
         }, virtualThreadExecutor);
     }
 

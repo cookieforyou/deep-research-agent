@@ -62,7 +62,7 @@ public record DeepResearchProperties(
         double similarityThreshold,
         int chunkSize,
         int chunkOverlap,
-        java.util.List<String> supportedFormats
+        List<String> supportedFormats
     ) {}
 
     /**
@@ -74,7 +74,7 @@ public record DeepResearchProperties(
         double mainstreamMedia,
         double generalWebsite,
         double unknownSource,
-        java.util.List<String> authorityDomains
+        List<String> authorityDomains
     ) {}
 
     /**

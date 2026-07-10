@@ -161,6 +161,13 @@
             <version>${resilience4j.version}</version>
         </dependency>
 
+        <!-- Resilience4j Micrometer 集成 — 自动暴露 CircuitBreaker/Retry 状态为 Micrometer Gauge -->
+        <dependency>
+            <groupId>io.github.resilience4j</groupId>
+            <artifactId>resilience4j-micrometer</artifactId>
+            <version>${resilience4j.version}</version>
+        </dependency>
+
         <!-- ======================== 可观测性 ======================== -->
 
         <!-- Micrometer Tracing + OpenTelemetry Bridge -->

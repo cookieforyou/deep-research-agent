@@ -21,6 +21,11 @@
 | Redis | - | 短期记忆 + 语义缓存 |
 | Bocha Search | - | AI 搜索引擎 |
 | DashScope | text-embedding-v3 | 文本向量化（1024维） |
+| Prometheus | v3.3.0 | 指标采集 + 告警 |
+| Grafana | 11.6.0 | 可视化仪表盘 |
+| OpenTelemetry | Collector 0.123.0 | Metrics/Traces 导出 |
+| Jaeger | 1.67.0 | 分布式追踪 UI |
+| Resilience4j | 2.3.0 | 熔断/重试 + Micrometer 集成 |
 | Maven | - | 构建工具 |
 
 ## 项目结构
@@ -82,8 +87,26 @@ src/main/java/com/example/deepresearch/
     ├── model/                              # 领域模型（Record）
     ├── util/JsonParseUtils.java            # LLM JSON 安全解析
     ├── util/PromptSplitUtils.java          # Prompt System/User 分离工具
-    ├── observability/TokenUsageTracker.java
+    ├── observability/                      # 可观测性（Metrics + Tracing + Token监控）
+    │   ├── TokenUsageTracker.java          # LLM Token/成本/延迟指标注册
+    │   ├── TokenTrackingAdvisor.java       # BaseAdvisor — 透明拦截所有 ChatClient 调用
+    │   ├── BusinessMetrics.java            # 业务指标集中注册（搜索/缓存/安全/工作流）
+    │   └── WorkflowTracingHelper.java      # 工作流节点 Tracing + MDC traceId
     └── constant/AgentType.java
+
+observability/                              # 可观测性基础设施（Docker Compose）
+├── docker-compose.yml                      # Prometheus + Grafana + OTel Collector + Jaeger
+├── prometheus/
+│   ├── prometheus.yml                      # 双源抓取（App 直连 + OTel Collector）
+│   └── rules/deepresearch-alerts.yml       # 9 条告警规则
+├── grafana/
+│   ├── datasources/datasource.yml          # Prometheus 数据源自动配置
+│   └── dashboards/                         # 4 个仪表盘 JSON（44 面板）
+│       ├── llm-overview.json               # LLM Token/成本/延迟
+│       ├── workflow-performance.json       # 工作流节点/搜索/缓存
+│       ├── security-monitoring.json        # PII/注入/CB/Eval
+│       └── system-resources.json           # JVM/GC/HTTP/CPU/线程
+└── otel-collector/otelcol-config.yml       # OTLP → Traces→Jaeger, Metrics→Prometheus
 
 src/main/resources/
 ├── application.yml                         # 主配置（含 PII/注入/缓存/降级）
@@ -175,6 +198,51 @@ START → intent_route ──[direct]──→ direct_answer → END
   - 检测到注入 → 400 Bad Request，不透露检测细节
 - **架构级防护**: 所有 7 个 Agent + directAnswer 节点使用 `chatClient.prompt().system().user()` 分离，利用 DeepSeek V4 原生角色隔离
 
+### 可观测性
+
+#### Metrics 指标体系
+
+所有指标通过 Micrometer → Prometheus 暴露在 `/actuator/prometheus`，Grafana 仪表盘实时可视化。
+
+| 指标类别 | 指标前缀 | 注册位置 | 录入方式 |
+|:---|:---|:---|:---|
+| LLM 调用 | `deepresearch.llm.*` | `TokenUsageTracker` | `TokenTrackingAdvisor`（BaseAdvisor，零侵入） |
+| 搜索 | `deepresearch.search.*` | `BusinessMetrics` | `ResilientSearchTool` |
+| 缓存 | `deepresearch.cache.*` | `BusinessMetrics` | `SemanticCacheService` |
+| PII 脱敏 | `deepresearch.security.pii.*` | `BusinessMetrics` | `PiiMaskingService` |
+| 注入检测 | `deepresearch.security.injection.*` | `BusinessMetrics` | `PromptInjectionChecker` |
+| 工作流 | `deepresearch.workflow.*` | `BusinessMetrics` + `WorkflowTracingHelper` | `ResearchOrchestratorService` |
+| Eval 评分 | `deepresearch.eval.score` | `ObservabilityConfig` (Gauge Bean) | `EvalAgent` |
+| CB 状态 | `resilience4j.circuitbreaker.*` | resilience4j-micrometer 自动 | `CircuitBreakerRegistry` |
+
+#### 分布式 Tracing
+
+- `WorkflowTracingHelper` 使用 `Tracer.nextSpan()` 创建 Span（当 Tracer Bean 可用时），或生成 UUID 写入 MDC `%X{traceId}`（本地兼容模式）
+- 所有 7 个工作流节点 + 搜索操作均已包裹
+- traceId 贯穿日志 → Prometheus → Jaeger 全链路
+- OTLP 导出端点: `http://localhost:4318`（需设置 `OTEL_METRICS_ENABLED=true`）
+
+#### Docker Compose 可观测性栈
+
+```bash
+cd observability && docker compose up -d
+# 启动 4 个服务: Prometheus(:9090) + Grafana(:3000) + OTel Collector(:4318) + Jaeger(:16686)
+```
+
+#### 告警规则 (9 条)
+
+| # | 告警名 | 严重度 | 条件 |
+|:---|:---|:---|:---|
+| 1 | `LLMLatencyHigh` | warning | P95 Pro > 60s / Flash > 30s |
+| 2 | `ResearchTokenCostHigh` | warning | 15min Token 速率 > 200K |
+| 3 | `SearchFallbackRateHigh` | critical | Bocha→Tavily 降级率 > 50% |
+| 4 | `CacheHitRateLow` | info | 命中率 < 10% |
+| 5 | `PiiDetectionSpike` | warning | PII 脱敏 > 10/min |
+| 6 | `InjectionDetectionSpike` | critical | 注入检测 > 5/min |
+| 7 | `WorkflowExecutionFailure` | critical | 工作流 error 状态 |
+| 8 | `EvalScoreLow` | warning | 评估分 < 3.0 |
+| 9 | `CircuitBreakerOpen` | critical | CB OPEN > 2min |
+
 ## 已知问题与修复记录
 
 | 问题 | 状态 | 修复日期 |
@@ -196,6 +264,14 @@ START → intent_route ──[direct]──→ direct_answer → END
 | Prompt 注入防护（规则引擎） | ✅ 已完成 — PromptInjectionChecker 复合评分 + Controller 前置拦截 | 2026-07-09 |
 | System/User 消息分离 | ✅ 已完成 — 全部 7个 Agent + directAnswer 节点架构级防护 | 2026-07-09 |
 | CHINESE_OUTPUT_SYSTEM_PATTERN 回溯缺陷 | ✅ 已修复 — `.{0,15}?` 替代嵌套交替，消除 Java regex 回溯bug | 2026-07-09 |
+| 可观测性 Phase 1-3（Metrics + Tracing + Token 监控） | ✅ 已完成 — Prometheus + TokenTrackingAdvisor + WorkflowTracingHelper + BusinessMetrics | 2026-07-09 |
+| PII 搜索结果误匹配（~27次/run） | ✅ 已修复 — 数学校验 (GB 11643 + Luhn) + skipPiiMask 外部数据跳过 | 2026-07-09 |
+| Planner JSON 解析失败（LLM 尾逗号） | ✅ 已修复 — JsonParseUtils.repairCommonJsonIssues() 二次解析 | 2026-07-09 |
+| 可观测性 Phase 4（Grafana + Docker Compose + 告警） | ✅ 已完成 — 4 仪表盘 44 面板 + 9 告警规则 + OTel Collector + Jaeger | 2026-07-10 |
+| 搜索/PII/工作流 Metrics 未接入（BusinessMetrics 定义但遗漏调用） | ✅ 已修复 — ResilientSearchTool + PiiMaskingService + ResearchOrchestratorService 均已接入 | 2026-07-10 |
+| `AtomicDouble` 编译错误 (Java 21 不存在) | ✅ 已修复 — 改用 `AtomicReference<Double>` | 2026-07-10 |
+| WebScout JSON 解析失败（LLM 遗漏 value 双引号 — 中文括号 `【】` 所致） | ✅ 已修复 — `UNQUOTED_STRING_VALUE` 正则自动补全 | 2026-07-10 |
+| WebScout JSON 解析失败（LLM 输出截断 — token 限制导致数组/字符串未闭合） | ✅ 已修复 — `closeUnclosedBrackets()` 栈逆序闭合括号+字符串 | 2026-07-10 |
 
 ### Milvus 集合 Schema Migration 注意
 语义缓存功能需要 `session_id`、`query`、`chunk_index` 三个字段。如果 Milvus 集合是 2026-07-08 之前创建的，需重建：
@@ -241,6 +317,27 @@ START → intent_route ──[direct]──→ direct_answer → END
 - 评分阈值: 复合评分 ≥ 0.5 判定为注入（可在 `check()` 方法中调整）
 - 强信号（指令覆盖模式）命中即拦截，不参与评分
 
+### 启动可观测性栈
+```bash
+cd observability && docker compose up -d
+# Prometheus: http://localhost:9090
+# Grafana:    http://localhost:3000 (admin/admin)
+# Jaeger:     http://localhost:16686
+# 启用 OTLP 导出: OTEL_METRICS_ENABLED=true mvn spring-boot:run
+```
+
+### 验证 Metrics
+```bash
+# 检查 Prometheus 端点
+curl -s http://localhost:8080/actuator/prometheus | grep deepresearch
+
+# 检查 Gatling 指标采集
+curl -s http://localhost:9090/api/v1/targets | jq '.data.activeTargets[] | {job, health}'
+
+# 检查告警规则
+curl -s http://localhost:9090/api/v1/rules | jq '.data.groups[].rules[] | {name, health}'
+```
+
 ## 环境变量
 
 | 变量 | 说明 | 默认值 |
@@ -252,3 +349,7 @@ START → intent_route ──[direct]──→ direct_answer → END
 | `BOCHA_API_KEY` | Bocha 搜索 API Key | - |
 | `PG_URL` | PostgreSQL 连接 URL | jdbc:postgresql://localhost:5432/deep_research |
 | `REDIS_HOST` | Redis 服务地址 | localhost |
+| `TAVILY_API_KEY` | Tavily 备用搜索 API Key | - |
+| `OTEL_METRICS_ENABLED` | 启用 OTLP Metrics 导出 | false |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | OTel Collector 地址 | http://localhost:4318 |
+| `OTEL_TRACING_SAMPLING` | Tracing 采样率 | 1.0 |

@@ -1,5 +1,7 @@
 package com.example.deepresearch.common.config;
 
+import com.example.deepresearch.common.observability.BusinessMetrics;
+import com.example.deepresearch.common.observability.WorkflowTracingHelper;
 import com.example.deepresearch.tool.EvidenceScorer;
 import com.example.deepresearch.tool.search.BochaSearchTool;
 import com.example.deepresearch.tool.search.FallbackSearchTool;
@@ -50,7 +52,9 @@ public class AppConfig {
             @Value("${deep-research.search.bocha.api-key}") String bochaApiKey,
             DeepResearchProperties props,
             ObjectMapper objectMapper,
-            CircuitBreakerRegistry cbRegistry) {
+            CircuitBreakerRegistry cbRegistry,
+            WorkflowTracingHelper tracingHelper,
+            BusinessMetrics businessMetrics) {
 
         // 创建主力搜索引擎（Bocha）
         SearchTool primary;
@@ -65,8 +69,9 @@ public class AppConfig {
         FallbackSearchTool fallback = new FallbackSearchTool(
             props.fallback().tavily(), objectMapper);
 
-        // 包装为韧性搜索工具
-        ResilientSearchTool resilient = new ResilientSearchTool(primary, fallback, cbRegistry);
+        // 包装为韧性搜索工具（带 Tracing 支持）
+        ResilientSearchTool resilient = new ResilientSearchTool(
+            primary, fallback, cbRegistry, tracingHelper, businessMetrics);
         log.info("搜索引擎注册完成: {}", resilient.getEngineName());
         return resilient;
     }
