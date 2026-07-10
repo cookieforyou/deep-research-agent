@@ -42,7 +42,7 @@
 │   L1 短期 (Redis)  L2 语义 (Milvus)  L3 长期 (PG)         │
 ├─────────────────────────────────────────────────────────┤
 │        基础设施 (DeepSeek V4 / Milvus / PG / Redis)      │
-│        可观测性 (Prometheus / Grafana / Jaeger)           │
+│        可观测性 (Prometheus / Grafana / Jaeger)          │
 └─────────────────────────────────────────────────────────┘
 ```
 
