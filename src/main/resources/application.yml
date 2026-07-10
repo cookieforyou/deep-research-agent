@@ -1,0 +1,388 @@
+# =============================================================================
+# DeepResearch Multi-Agent 行业深度研究助手 — 主配置文件
+# 技术栈: Spring Boot 4.1.0 + Spring AI 2.0 + DeepSeek V4 + LangGraph4j
+# =============================================================================
+
+server:
+  port: 8080
+  shutdown: graceful
+  # 请求超时 (长研究任务最多 10 分钟)
+  netty:
+    connection-timeout: 600000
+
+spring:
+  application:
+    name: deep-research-agent
+
+  # =========================== 虚拟线程 ===========================
+  # Spring Boot 4.1 + Java 21 默认开启虚拟线程，无需额外配置
+  threads:
+    virtual:
+      enabled: true
+
+  # =========================== 数据库 (PostgreSQL) ===========================
+  datasource:
+    url: ${PG_URL:jdbc:postgresql://localhost:5432/deep_research}
+    username: ${PG_USER:deep_research}
+    password: ${PG_PASSWORD:deep_research}
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    open-in-view: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+
+  # =========================== Redis ===========================
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      database: ${REDIS_DB:0}
+      lettuce:
+        pool:
+          max-active: 16
+          max-idle: 8
+          min-idle: 4
+      timeout: 5000ms
+
+  # =========================== Spring AI 2.0 ===========================
+  ai:
+    # Chat Model 明确指定为 DeepSeek（避免与 OpenAI starter 冲突）
+    model:
+      chat: deepseek
+
+    # ---------- DeepSeek V4 原生配置 ----------
+    deepseek:
+      api-key: ${DEEPSEEK_API_KEY:}
+      base-url: ${DEEPSEEK_BASE_URL:https://api.deepseek.com}
+      chat:
+        enabled: true
+        options:
+          # 工具型 Agent 模型 (IntentRouter, Scout, Judge)
+          tool-model: ${DEEPSEEK_TOOL_MODEL:deepseek-v4-flash}
+          # 核心 Agent 模型 (Planner, Analyst, Writer, Reflect)
+          core-model: ${DEEPSEEK_CORE_MODEL:deepseek-v4-pro}
+          # 全局最大输出 token
+          max-tokens: 8192
+
+    # ---------- MCP Client (Bocha Search MCP Server) ----------
+    mcp:
+      client:
+        enabled: true
+        connections:
+          bocha-search:
+            type: STREAMABLE_HTTP
+            url: ${BOCHA_MCP_URL:https://api.bocha.cn/mcp}
+
+    # ---------- Embedding Model (DashScope text-embedding-v3 via OpenAI 兼容协议) ----------
+    # 阿里 DashScope 提供 OpenAI 兼容的 embedding 端点，通过 spring-ai-starter-model-openai 接入
+    openai:
+      api-key: ${DASHSCOPE_API_KEY:${DEEPSEEK_API_KEY:}}
+      base-url: ${DASHSCOPE_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}
+      chat:
+        enabled: false  # 禁用 OpenAI Chat（使用 DeepSeek）
+      embedding:
+        enabled: true
+        options:
+          model: text-embedding-v3
+          # DashScope text-embedding-v3: 1024 维向量，支持中英文，国内合规
+
+    # ---------- Vector Store (Milvus) ----------
+    vectorstore:
+      milvus:
+        host: ${MILVUS_HOST:localhost}
+        port: ${MILVUS_PORT:19530}
+        username: ${MILVUS_USERNAME:}
+        password: ${MILVUS_PASSWORD:}
+        database: ${MILVUS_DATABASE:deep_research}
+        # 向量维度（DashScope text-embedding-v3）
+        embedding-dimension: 1024
+        # 索引类型
+        index-type: IVF_FLAT
+        # 相似度度量
+        metric-type: COSINE
+
+    # ---------- Metadata Fields for Milvus Collection ----------
+    # 每个 Document 存储以下元数据字段:
+    #   doc_title   - 文档标题
+    #   source_url  - 来源 URL
+    #   created_at  - 创建时间
+    #   doc_type    - 文档类型 (pdf/docx/md/txt)
+    #   tenant_id   - 租户 ID（多租户硬隔离）
+
+  # =========================== Security ===========================
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${JWT_ISSUER_URI:http://localhost:8080}
+
+# =============================================================================
+# DeepResearch 业务配置
+# =============================================================================
+deep-research:
+  # 搜索配置
+  search:
+    bocha:
+      api-key: ${BOCHA_API_KEY:}
+      base-url: ${BOCHA_BASE_URL:https://api.bocha.cn}
+      # 每次搜索返回结果数（增加以补偿单轮模式）
+      default-count: 15
+      # 搜索超时
+      timeout: 30s
+    # 搜索结果备选方案
+    fallback:
+      enabled: true
+
+  # 研究流程配置
+  workflow:
+    # 最大反思补搜迭代次数（单轮模式，不再循环）
+    max-iterations: 1
+    # 每次检索的证据数量上限
+    max-evidence-per-source: 8
+    # 报告最低字数要求
+    min-report-words: 1500
+    # 单次研究总超时
+    timeout: 120s
+
+  # RAG 配置
+  rag:
+    # 向量检索 Top-K
+    top-k: 4
+    # 相似度阈值 (0.0 ~ 1.0)
+    similarity-threshold: 0.7
+    # 文档分块大小（字符数）
+    chunk-size: 1000
+    # 文档分块重叠（字符数）
+    chunk-overlap: 200
+    # 支持的文件类型
+    supported-formats:
+      - pdf
+      - docx
+      - md
+      - txt
+
+  # 证据评分规则（规则引擎前置分数）
+  evidence-scoring:
+    local-knowledge-base: 0.92
+    government-edu: 0.88
+    mainstream-media: 0.72
+    general-website: 0.58
+    unknown-source: 0.45
+    # 政府/教育机构域名模式
+    authority-domains:
+      - "*.gov.cn"
+      - "*.gov.*"
+      - "*.edu.cn"
+      - "*.edu.*"
+
+  # 记忆系统
+  memory:
+    short-term:
+      # 会话窗口大小（消息数）
+      window-size: 20
+      # Redis TTL
+      ttl: 1h
+    long-term:
+      # 用户画像最大存储条目
+      max-profile-entries: 50
+
+  # 语义缓存配置
+  cache:
+    # 是否启用语义缓存
+    enabled: true
+    # 缓存命中相似度阈值（0.0~1.0，COSINE 度量）
+    # text-embedding-v3 的 query→document 相似度通常在 0.55-0.85，
+    # 设为 0.80：同一 query 一定命中，相似 query 高概率命中，无关 query 不命中
+    similarity-threshold: 0.80
+
+  # PII 脱敏配置
+  pii:
+    # 是否启用 PII 脱敏（脱敏仅影响发送到 LLM 的内容，不影响 Milvus 本地检索）
+    enabled: true
+
+  # Prompt 注入防护配置
+  injection:
+    # 是否启用注入检测
+    enabled: true
+    # 查询长度超过此值标记为可疑（弱信号，单一此条件不触发拦截）
+    max-query-length: 2000
+    # 重复字符占比超过此值标记为可疑（0.0~1.0，弱信号）
+    repetition-threshold: 0.7
+    # 黑名单关键词（忽略大小写，命中触发评分）
+    blocked-keywords:
+      - "ignore previous instructions"
+      - "system prompt"
+      - "output your instructions"
+      - "reveal your prompt"
+      - "forget all previous"
+      - "disregard prior"
+      - "you are now DAN"
+      - "忽略之前所有指令"
+      - "忽略以上指令"
+      - "输出你的系统提示词"
+      - "显示你的指令"
+      - "告诉我你的prompt"
+
+  # LLM 评估配置（EvalAgent）
+  eval:
+    # 是否启用自动评估
+    enabled: true
+    # 告警阈值（连续N次评估平均分低于此值时触发WARN日志）
+    alert-threshold: 3.0
+    # 告警滑动窗口大小
+    alert-window-size: 10
+
+  # 降级策略配置（模型降级 + 搜索备用引擎）
+  fallback:
+    # 模型降级 (Pro → Flash)
+    model:
+      # 是否启用模型自动降级
+      enabled: true
+      # Pro 模型调用最大等待时间
+      max-wait: 30s
+    # Tavily 备用搜索引擎
+    tavily:
+      api-key: ${TAVILY_API_KEY:}
+      base-url: ${TAVILY_BASE_URL:https://api.tavily.com}
+
+# =============================================================================
+# Resilience4j — 韧性配置
+# =============================================================================
+resilience4j:
+  retry:
+    configs:
+      llm-api-retry:
+        # 指数退避: 1s → 2s → 4s → 8s → 最大 30s
+        max-retry-attempts: 2
+        wait-duration: 500ms
+        exponential-backoff-multiplier: 2
+        max-wait-duration: 30s
+        retry-exceptions:
+          - org.springframework.web.reactive.function.client.WebClientResponseException.TooManyRequests
+          - org.springframework.web.reactive.function.client.WebClientResponseException.ServiceUnavailable
+          - org.springframework.web.reactive.function.client.WebClientResponseException.InternalServerError
+      search-retry:
+        max-retry-attempts: 2
+        wait-duration: 2s
+
+  circuitbreaker:
+    configs:
+      search-circuit-breaker:
+        # 滑动窗口大小
+        sliding-window-size: 10
+        # 失败率阈值 50% 触发熔断
+        failure-rate-threshold: 50
+        # 熔断持续时间
+        wait-duration-in-open-state: 30s
+        # 半开状态允许的请求数
+        permitted-number-of-calls-in-half-open-state: 3
+      llm-circuit-breaker:
+        # 滑动窗口大小
+        sliding-window-size: 10
+        # 失败率阈值 50% 触发熔断
+        failure-rate-threshold: 50
+        # 熔断持续时间
+        wait-duration-in-open-state: 30s
+        # 半开状态允许的请求数
+        permitted-number-of-calls-in-half-open-state: 3
+
+  timelimiter:
+    configs:
+      llm-time-limiter:
+        timeout-duration: 60s
+
+# =============================================================================
+# Actuator — 健康检查 & 指标 & 追踪
+# =============================================================================
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+      base-path: /actuator
+  endpoint:
+    health:
+      show-details: when-authorized
+      probes:
+        enabled: true
+  metrics:
+    export:
+      # Prometheus — 由 Prometheus Server 定时抓取（开发/生产均可使用）
+      prometheus:
+        enabled: true
+      # OTLP — 推送到 OpenTelemetry Collector（生产环境启用）
+      otlp:
+        enabled: ${OTEL_METRICS_ENABLED:false}
+        endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318/v1/metrics}
+        step: 30s
+    tags:
+      application: deep-research-agent
+      env: ${SPRING_PROFILES_ACTIVE:dev}
+    # 启用 JVM 详细指标
+    enable:
+      jvm: true
+      process: true
+      system: true
+    distribution:
+      # 百分位直方图 — 用于 p50/p95/p99 延迟分析
+      percentiles-histogram:
+        http.server.requests: true
+        deepresearch.llm.latency: true
+        deepresearch.search.latency: true
+      slo:
+        http.server.requests: 100ms,500ms,1s,2s,5s
+        deepresearch.llm.latency: 1s,3s,5s,10s,30s
+  tracing:
+    sampling:
+      probability: ${OTEL_TRACING_SAMPLING:1.0}
+    baggage:
+      # 在服务间传播租户和会话 ID
+      remote-fields: tenantId,sessionId
+      correlation:
+        fields: tenantId,sessionId
+  info:
+    git:
+      mode: full
+    build:
+      enabled: true
+    env:
+      enabled: true
+    java:
+      enabled: true
+    os:
+      enabled: true
+
+# =============================================================================
+# 应用信息（/actuator/info 端点）
+# =============================================================================
+info:
+  app:
+    name: deep-research-agent
+    version: 1.0.0
+    description: 基于 Spring AI + DeepSeek 的多 Agent 深度研究系统
+
+# =============================================================================
+# 日志
+# =============================================================================
+logging:
+  level:
+    root: INFO
+    com.example.deepresearch: DEBUG
+    org.springframework.ai: DEBUG
+    org.bsc.langgraph4j: DEBUG
+    # 生产环境请关闭敏感信息
+    org.springframework.security: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level [%X{traceId:-}] %logger{36} - %msg%n"

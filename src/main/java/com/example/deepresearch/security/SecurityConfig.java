@@ -1,0 +1,97 @@
+package com.example.deepresearch.security;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
+import org.springframework.security.config.annotation.web.reactive.EnableWebFluxSecurity;
+import org.springframework.security.config.web.server.ServerHttpSecurity;
+import org.springframework.security.oauth2.jwt.ReactiveJwtDecoder;
+import org.springframework.security.oauth2.jwt.ReactiveJwtDecoders;
+import org.springframework.security.web.server.SecurityWebFilterChain;
+import org.springframework.security.web.server.context.NoOpServerSecurityContextRepository;
+
+/**
+ * Spring Security 配置 — JWT + OAuth2 无状态认证.
+ * <p>
+ * 采用 WebFlux 响应式安全配置（非 Servlet），
+ * 使用 JWT Bearer Token 进行无状态认证，
+ * 支持 OAuth2 Resource Server 外部签发。
+ * </p>
+ *
+ * <h3>安全策略</h3>
+ * <ul>
+ *   <li>API 端点需要认证（除 health check）</li>
+ *   <li>JWT Token 中提取 userId 和 tenantId</li>
+ *   <li>WebFlux 的 ReactiveSecurityContextHolder 传递认证信息</li>
+ *   <li>禁用 Session（无状态）</li>
+ *   <li>禁用 CSRF（API 服务无浏览器表单）</li>
+ * </ul>
+ */
+@Configuration
+@EnableWebFluxSecurity
+public class SecurityConfig {
+
+    @Value("${spring.security.oauth2.resourceserver.jwt.issuer-uri}")
+    private String issuerUri;
+
+    /**
+     * 安全过滤器链（WebFlux 响应式）.
+     */
+    @Bean
+    public SecurityWebFilterChain securityFilterChain(ServerHttpSecurity http) {
+        return http
+            // 禁用 CSRF（REST API 不使用浏览器 Cookie）
+            .csrf(ServerHttpSecurity.CsrfSpec::disable)
+
+            // 禁用 Session（无状态 JWT 认证）
+            .securityContextRepository(NoOpServerSecurityContextRepository.getInstance())
+
+            // 禁用默认登录页
+            .formLogin(ServerHttpSecurity.FormLoginSpec::disable)
+            .httpBasic(ServerHttpSecurity.HttpBasicSpec::disable)
+
+            // 端点授权
+            .authorizeExchange(exchanges -> exchanges
+                // Actuator 健康检查无需认证
+                .pathMatchers(HttpMethod.GET, "/actuator/**")
+                    .permitAll()
+                // Swagger / OpenAPI 文档（如果启用）
+                .pathMatchers(HttpMethod.GET, "/v3/api-docs/**", "/swagger-ui/**")
+                    .permitAll()
+                // 研究 API 需要认证
+                .pathMatchers("/api/**")
+                    .authenticated()
+                // 其他所有请求需要认证
+                .anyExchange()
+                    .authenticated()
+            )
+
+            // OAuth2 Resource Server JWT
+            .oauth2ResourceServer(oauth2 -> oauth2
+                .jwt(jwt -> jwt
+                    .jwtDecoder(jwtDecoder())
+                    .jwtAuthenticationConverter(new TenantJwtAuthenticationConverter())
+                )
+            )
+
+            .build();
+    }
+
+    /**
+     * JWT 解码器.
+     * <p>
+     * 从 OAuth2 / OIDC Provider（如 Casdoor）的 issuer-uri 获取 JWK Set。
+     * Casdoor 遵循标准 OIDC 协议，通过 /.well-known/openid-configuration 自动发现 JWKS 端点。
+     * </p>
+     * <p>
+     * 配置方式：环境变量 JWT_ISSUER_URI 或 application.yml 中的
+     * spring.security.oauth2.resourceserver.jwt.issuer-uri。
+     * 例如 Casdoor: {@code http://<casdoor-host>:<port>}
+     * </p>
+     */
+    @Bean
+    public ReactiveJwtDecoder jwtDecoder() {
+        return ReactiveJwtDecoders.fromIssuerLocation(issuerUri);
+    }
+}

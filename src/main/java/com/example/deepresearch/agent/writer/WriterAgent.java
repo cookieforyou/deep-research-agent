@@ -1,0 +1,259 @@
+package com.example.deepresearch.agent.writer;
+
+import com.example.deepresearch.agent.bundle.ModelFallbackService;
+import com.example.deepresearch.common.model.Evidence;
+import com.example.deepresearch.common.model.Finding;
+import com.example.deepresearch.common.model.WriteResult;
+import com.example.deepresearch.common.util.JsonParseUtils;
+import com.example.deepresearch.common.util.PromptSplitUtils;
+import com.example.deepresearch.common.util.PromptSplitUtils.PromptParts;
+import com.example.deepresearch.security.PiiMaskingService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.core.io.Resource;
+import org.springframework.core.io.ResourceLoader;
+import org.springframework.stereotype.Service;
+
+import java.nio.charset.StandardCharsets;
+import java.util.Collections;
+import java.util.List;
+
+/**
+ * 撰稿 Agent — 将研究结论整合为深度 Markdown 研报.
+ * <p>
+ * 使用 deepseek-v4-pro (T=0.4)，需要文采和流畅度。
+ * 当 Pro 模型不可用时自动降级到 Flash (T=0.4)。
+ * 目标产出 3000+ 字的结构化深度研报，精确引用每条来源。
+ * </p>
+ *
+ * <h3>报告结构</h3>
+ * <ol>
+ *   <li>执行摘要（Executive Summary）</li>
+ *   <li>研究背景与方法</li>
+ *   <li>各子问题的详细分析（按大纲结构）</li>
+ *   <li>跨维度综合讨论</li>
+ *   <li>结论与建议</li>
+ *   <li>参考资料（合法 sourceId 自动渲染）</li>
+ * </ol>
+ *
+ * <h3>引用格式</h3>
+ * <p>
+ * 正文中使用 {@code [WEB01_1-1]} 或 {@code [LOCAL01_1-1]} 格式引用来源，
+ * 文末自动生成参考资料列表。引用校验器（{@code CitationValidator}）
+ * 会在输出后移除无效引用。
+ * </p>
+ */
+@Service
+public class WriterAgent {
+
+    private static final Logger log = LoggerFactory.getLogger(WriterAgent.class);
+
+    private final ChatClient chatClient;
+    private final ChatClient fallbackClient;
+    private final ModelFallbackService fallbackService;
+    private final JsonParseUtils jsonUtils;
+    private final String systemPrompt;
+    private final String userPromptTemplate;
+    private final PiiMaskingService piiMaskingService;
+
+    /** Fallback: 最简报告 */
+    private static final WriteResult FALLBACK = new WriteResult(
+        "# 研究未能完成\n\n抱歉，报告生成过程出现异常，请稍后重试。",
+        Collections.emptyList(), 0, 1);
+
+    public WriterAgent(
+        @Qualifier("writerClient") ChatClient chatClient,
+        @Qualifier("writerFallbackClient") ChatClient fallbackClient,
+        ModelFallbackService fallbackService,
+        JsonParseUtils jsonUtils,
+        ResourceLoader resourceLoader,
+        PiiMaskingService piiMaskingService
+    ) {
+        this.chatClient = chatClient;
+        this.fallbackClient = fallbackClient;
+        this.fallbackService = fallbackService;
+        this.jsonUtils = jsonUtils;
+        this.piiMaskingService = piiMaskingService;
+        String fullTemplate = loadPrompt(resourceLoader);
+        PromptParts parts = PromptSplitUtils.split(fullTemplate);
+        this.systemPrompt = parts.system();
+        this.userPromptTemplate = parts.user();
+    }
+
+    /**
+     * 撰写深度研究报告.
+     *
+     * @param query        原始研究查询
+     * @param reportOutline Planner 生成的报告大纲
+     * @param findings     分析师的结论列表
+     * @param evidencePool 裁判后的证据池
+     * @param sourceIndex  合法来源索引（用于引用渲染）
+     * @return 撰写结果（报告正文 + 使用引用列表 + 字数统计）
+     */
+    public WriteResult write(String query, String reportOutline,
+                              List<Finding> findings, List<Evidence> evidencePool,
+                              List<String> sourceIndex) {
+        log.info("[Writer] 开始撰写报告: query='{}', {} 个结论, {} 条证据",
+            piiMaskingService.tokenizeToString(query), findings != null ? findings.size() : 0,
+            evidencePool != null ? evidencePool.size() : 0);
+
+        try {
+            String userPrompt = userPromptTemplate
+                .replace("{{query}}", query)
+                .replace("{{reportOutline}}",
+                    reportOutline != null ? reportOutline : "# 研究报告")
+                .replace("{{findings}}",
+                    findings != null ? buildFindingsText(findings) : "")
+                .replace("{{evidencePool}}",
+                    evidencePool != null ? buildEvidenceText(evidencePool) : "")
+                .replace("{{sourceIndex}}",
+                    sourceIndex != null ? String.join(", ", sourceIndex) : "");
+
+            String rawOutput = fallbackService.callWithFallback(
+                chatClient, fallbackClient, systemPrompt, userPrompt, "Writer");
+            log.debug("[Writer] LLM 输出长度: {} 字符",
+                rawOutput != null ? rawOutput.length() : 0);
+
+            WriteResult result = jsonUtils.safeParse(
+                rawOutput, WriteResult.class, FALLBACK, "Writer");
+
+            // Flash 模型降级时可能不输出 JSON 而是直接输出 Markdown 报告正文，
+            // 此时 JSON 解析会失败返回 FALLBACK 模板。若原始输出有实质内容，
+            // 直接将其作为报告正文，避免有效内容被丢弃
+            if (result == FALLBACK && rawOutput != null && rawOutput.length() > 200) {
+                log.warn("[Writer] JSON 解析失败，但原始输出有 {} 字符，直接作为报告正文使用",
+                    rawOutput.length());
+                String reportBody = sanitizeRawOutput(rawOutput);
+                result = new WriteResult(reportBody, Collections.emptyList(),
+                    countWords(reportBody), 1);
+            }
+
+            // 保护：LLM JSON 可能缺少 usedCitations 字段导致 null
+            List<String> citations = result.usedCitations() != null
+                ? result.usedCitations() : Collections.emptyList();
+            String reportContent = result.reportContent() != null
+                ? result.reportContent() : "";
+
+            // 验证报告质量
+            int wordCount = countWords(reportContent);
+            log.info("[Writer] 报告完成: {} 字, {} 个引用, {} 个章节",
+                wordCount, citations.size(), result.sectionCount());
+
+            if (wordCount < 1500) {
+                log.warn("[Writer] 报告字数不足 1500（当前 {}），可能需要优化 prompt 或模型参数", wordCount);
+            }
+
+            return new WriteResult(reportContent, citations, wordCount, result.sectionCount());
+
+        } catch (Exception e) {
+            log.error("[Writer] 撰写异常，返回 fallback", e);
+            return FALLBACK;
+        }
+    }
+
+    /**
+     * 清理原始 LLM 输出为可用的报告正文.
+     * <p>
+     * 处理 Flash 模型降级时直接输出 Markdown 报告（非 JSON 格式）的情况。
+     * 移除可能的 JSON 残留字符和 Markdown 代码块标记。
+     * </p>
+     */
+    private String sanitizeRawOutput(String raw) {
+        String cleaned = raw.trim();
+        // 移除 Markdown 代码块标记
+        if (cleaned.startsWith("```")) {
+            int endOfFence = cleaned.indexOf('\n');
+            if (endOfFence > 0) {
+                cleaned = cleaned.substring(endOfFence + 1);
+            }
+        }
+        if (cleaned.endsWith("```")) {
+            cleaned = cleaned.substring(0, cleaned.length() - 3).trim();
+        }
+        return cleaned;
+    }
+
+    /**
+     * 构建结论摘要文本.
+     */
+    private String buildFindingsText(List<Finding> findings) {
+        StringBuilder sb = new StringBuilder();
+        for (Finding f : findings) {
+            sb.append(String.format("### %s\n**结论**: %s\n**推理**: %s\n**置信度**: %.2f\n**支撑证据**: %s\n\n",
+                f.subQuestionId() != null ? f.subQuestionId() : "未知",
+                f.conclusion() != null ? f.conclusion() : "",
+                f.reasoning() != null ? f.reasoning() : "",
+                f.confidence(),
+                f.supportingEvidenceIds() != null
+                    ? String.join(", ", f.supportingEvidenceIds())
+                    : "无"));
+        }
+        return sb.toString();
+    }
+
+    /**
+     * 构建证据摘要文本，包含 sourceId → 来源的映射.
+     */
+    private String buildEvidenceText(List<Evidence> pool) {
+        StringBuilder sb = new StringBuilder();
+        for (Evidence e : pool) {
+            sb.append(String.format("[%s] %s\n  URL: %s\n  %s\n\n",
+                e.sourceId() != null ? e.sourceId() : "?",
+                e.title() != null ? e.title() : "",
+                e.url() != null ? e.url() : "",
+                e.content() != null
+                    ? (e.content().length() > 300
+                        ? e.content().substring(0, 300) + "..." : e.content())
+                    : ""));
+        }
+        return sb.toString();
+    }
+
+    /**
+     * 简单字数统计（按中文字符 + 英文单词估算）.
+     */
+    private int countWords(String text) {
+        if (text == null || text.isEmpty()) return 0;
+        long chineseChars = text.codePoints()
+            .filter(cp -> {
+                Character.UnicodeScript script = Character.UnicodeScript.of(cp);
+                return script == Character.UnicodeScript.HAN;
+            })
+            .count();
+        // 移除非英文字符，按空格分词计数
+        StringBuilder sb = new StringBuilder();
+        text.codePoints().forEach(cp -> {
+            if (Character.isLetter(cp) || Character.isWhitespace(cp)) {
+                sb.appendCodePoint(cp);
+            }
+        });
+        String[] words = sb.toString().split("\\s+");
+        long englishWords = (words.length == 1 && words[0].isEmpty()) ? 0 : words.length;
+        return (int) (chineseChars + englishWords);
+    }
+
+    private String loadPrompt(ResourceLoader loader) {
+        try {
+            Resource resource = loader.getResource("classpath:prompts/writer.st");
+            return resource.getContentAsString(StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            log.error("[Writer] 无法加载 prompt 模板", e);
+            return """
+                你是专业研究报告撰稿人。请基于以下研究结论和证据，撰写一份深度研究报告。
+
+                研究主题: {{query}}
+                报告大纲:
+                {{reportOutline}}
+                研究结论:
+                {{findings}}
+                证据来源:
+                {{evidencePool}}
+                合法引用ID: {{sourceIndex}}
+
+                返回 JSON: {"reportContent": "完整的Markdown报告...", "usedCitations": ["WEB01_1"], "wordCount": 3000, "sectionCount": 5}
+                """;
+        }
+    }
+}
