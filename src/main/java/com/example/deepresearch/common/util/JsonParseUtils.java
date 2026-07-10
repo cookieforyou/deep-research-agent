@@ -201,9 +201,9 @@ public class JsonParseUtils {
         try {
             String msg = e.getMessage();
             // Jackson 错误格式: " at [Source: ...; line: N, column: M]"
-            java.util.regex.Pattern p = java.util.regex.Pattern.compile(
+            Pattern p = Pattern.compile(
                 "line:\\s*(\\d+)");
-            java.util.regex.Matcher m = p.matcher(msg);
+            Matcher m = p.matcher(msg);
             if (m.find()) {
                 int lineNum = Integer.parseInt(m.group(1));
                 String[] lines = json.split("\n");
