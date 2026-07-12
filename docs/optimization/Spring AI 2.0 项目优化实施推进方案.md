@@ -940,3 +940,206 @@ Round 4 — 增强特性
 2. **接口签名不变**（Round 1, 3）：Agent 的 public 方法签名不动，LangGraph4j 工作流无感知
 3. **每轮可独立回滚**：Git commit 粒度为 Round 级，出问题一键 revert
 4. **Round 1 建立信心**：最先做最安全的事，快速见效
+
+---
+
+## 十、实施完成总结与后续集成指南
+
+> **实施日期**：2026-07-12
+> **最终状态**：BUILD SUCCESS，所有 4 轮改动编译通过
+
+### 10.1 改动总览
+
+| Round | 新增文件 | 修改文件 | 删除文件 | 主题 |
+|-------|---------|---------|---------|------|
+| **1** | 0 | 10 | 6 | 配置扁平化 + 代码清理 + `.entity()` + 文档处理 |
+| **2** | 7 | 2 | 0 | VectorStore 适配 + ChatMemory 适配 + Advisor 链 + Token 预算 + 输出护栏 |
+| **3** | 1 | 3 | 0 | `@Tool` 工具调用重构（Scout Agent 内部） |
+| **4** | 6 + 1 SQL | 0 | 1 | 模型路由(已删) + 高级 RAG + Prompt 管理 + HITL + Eval 测试 |
+| **合计** | **14 + 1 SQL** | **15** | **7** | — |
+
+### 10.2 各轮完成项明细
+
+#### Round 1 — 基础清理 + 机械替换 ✅
+
+| # | 优化项 | 涉及文件 | 备注 |
+|---|--------|----------|------|
+| 4 | 配置扁平化 | `application.yml` | 移除 `deepseek.chat.options` 和 `openai.embedding.options` 冗余层级 |
+| 15 | 代码清理 | `EvidenceJudgeAgent`, `ReflectAgent`, `JudgeResult`, `ReflectResult`, 2 个 `.st` | 净删 560 行 |
+| 15 | 枚举清理 | `AgentType.java` | 移除 `EVIDENCE_JUDGE`、`REFLECT` |
+| 7 | 可观测性 | `application.yml` | 启用 `spring.ai.chat.observations` + `management.observations.enable.spring.ai` |
+| 2 | `.entity()` | `IntentRouterAgent`, `PlannerAgent`, `WebScoutAgent`, `LocalScoutAgent`, `AnalystAgent`, `WriterAgent`, `EvalAgent` | `safeParse()` → `.call().entity()`；`ModelFallbackService` 新增泛型 `<T>` 降级重载；`WriterAgent` 移除 `sanitizeRawOutput` 死代码 |
+| 13 | 文档处理 | `pom.xml` + `DocumentIngestionService` | + `spring-ai-tika-document-reader`；`TikaDocumentReader` + `TokenTextSplitter.builder()` 替代自定义 `chunkText()` |
+
+#### Round 2 — 适配器 + Advisor 链基础层 ✅
+
+| # | 优化项 | 涉及文件（全部新增） | 备注 |
+|---|--------|----------|------|
+| 3 | VectorStore 适配器 | `MilvusVectorStoreAdapter` | `implements VectorStore`，包装 `VectorStoreService` |
+| 5 | ChatMemory 适配器 | `RedisChatMemoryAdapter` | `implements ChatMemory`，适配 `ShortTermMemoryService` 响应式 API |
+| 6 | Advisor 统一链 | `EnterpriseChatClientConfig` | 8 个 Advisor 链式装配，与 `AgentBundle` 双轨并行 |
+| 9 | Token 预算 | `TokenBudgetAdvisor` | `CallAdvisor` 接口，Redis INCR+EXPIRE 分布式限流 |
+| 16 | 输出护栏 | `OutputGuardrailAdvisor` | `CallAdvisor` 接口，敏感词拦截 + 安全兜底文案 |
+| — | 审计日志 | `AuditLogAdvisor` | `CallAdvisor` 接口，`AUDIT` Logger 记录 agent/user/status/latency |
+| — | 安全日志扩展 | `SecurityLogService.java`（修改） | + `logOutputBlocked()` 方法 |
+| — | 依赖 | `pom.xml`（修改） | + `spring-ai-vector-store` + `spring-ai-vector-store-advisor` |
+
+#### Round 3 — @Tool 工具调用重构 ✅
+
+| # | 优化项 | 涉及文件 | 备注 |
+|---|--------|----------|------|
+| 1 | SearchTools | `SearchTools.java`（新增） | `@Tool` 注解封装 `webSearch` + `localSearch` |
+| 1 | WebScoutAgent | `WebScoutAgent.java`（重写） | 230→130 行，移除手动并行搜索，LLM 自主调用 `@Tool` |
+| 1 | LocalScoutAgent | `LocalScoutAgent.java`（重写） | 205→122 行，同上 |
+| 1 | AgentBundle 注册 | `AgentBundle.java`（修改） | `webScoutClient` + `localScoutClient` 各加 `.defaultTools(searchTools)` |
+
+#### Round 4 — 增强特性收尾 ✅
+
+| # | 类 | 状态 | 集成方式 |
+|---|----|------|----------|
+| 8 | `SmartRoutingChatModel` | ❌ 已删除 | 与 DeepSeek 单 ChatModel 架构冲突，不适合当前项目 |
+| 10 | `AdvancedRagService` | ✅ 就绪 | 见下文 10.3.1 |
+| 11 | `DynamicPromptService` + `PromptTemplateEntity` + `PromptTemplateRepository` | ✅ 就绪 | 见下文 10.3.2 |
+| — | `init_prompt_templates.sql` | ✅ 已生成 | 8 个 `.st` 文件全部入库，`ON CONFLICT DO UPDATE` 可重复执行 |
+| 12 | `ApprovalService` | ⏸️ 预留 | 当前项目无需写操作，预留 `submitForApproval()` 接口供未来扩展 |
+| 14 | `AiEvaluationRegressionTest` | ✅ 就绪 | `mvn test -Dtest=AiEvaluationRegressionTest` 自动拾取 |
+
+### 10.3 就绪类后续集成指南
+
+#### 10.3.1 AdvancedRagService — 高级 RAG（查询改写）
+
+**位置**：`com.example.deepresearch.rag.AdvancedRagService`
+
+**依赖**：已注入 `intentRouterClient`（Flash ChatClient）+ `VectorStore`
+
+**使用方式**：
+
+```java
+@Autowired
+private AdvancedRagService advancedRagService;
+
+// 单次调用即完成：查询改写 → 向量检索 → LLM 生成
+String answer = advancedRagService.askWithRewriting("2026年新能源车咋样");
+```
+
+**建议接入点**：`LocalScoutAgent.search()` 方法内部，将用户原始查询先经过 `rewriteQuery()` 改写后再传给 LLM，提升 Milvus 检索精度。
+
+**改动量**：约 3 行（注入 `AdvancedRagService`，调用 `rewriteQuery()` 替换原始 query 传入 prompt）。
+
+**AdvancedRagService 集成方式**：
+
+在需要高级 RAG 的地方注入 AdvancedRagService，调用 askWithRewriting(query) 内部自动完成 查询改写 → 向量检索 → LLM 生成 的完整链路。
+
+#### 10.3.2 DynamicPromptService — Prompt 动态管理
+
+**位置**：`com.example.deepresearch.service.DynamicPromptService`
+
+**数据库**：`prompt_templates` 表（JPA `ddl-auto: update` 自动建表）
+
+**初始化**：
+```bash
+psql -h localhost -U deep_research -d deep_research \
+  -f docs/optimization/sql/init_prompt_templates.sql
+```
+
+**加载优先级**：内存缓存（1分钟TTL）→ PostgreSQL → classpath `prompts/*.st`（兜底）
+
+**集成方式**（以 WriterAgent 为例，改动 1 行）：
+
+```java
+// 现在 — 直接从 classpath 加载
+String fullTemplate = loadPrompt(resourceLoader);
+
+// 集成后 — 数据库优先 + classpath 自动兜底
+String fullTemplate = dynamicPromptService.getTemplateContent("writer");
+```
+
+**热更新**：运营人员执行 `UPDATE prompt_templates SET content='新prompt...' WHERE id='writer'`，1 分钟内自动生效（缓存 TTL 过期），无需重启应用。
+
+**迁移策略**：逐个 Agent 替换 `loadPrompt(ResourceLoader)` → `dynamicPromptService.getTemplateContent(id)`。映射关系：
+
+| Agent | templateId |
+|-------|-----------|
+| IntentRouterAgent | `intent-router` |
+| PlannerAgent | `planner` |
+| WebScoutAgent | `web-scout` |
+| LocalScoutAgent | `local-scout` |
+| AnalystAgent | `analyst` |
+| WriterAgent | `writer` |
+| EvalAgent | `eval` |
+| ResearchWorkflow.directAnswer | `direct-answer` |
+
+```
+DynamicPromptService 集成方式
+
+当前所有 Agent 的 loadPrompt(ResourceLoader) 私有方法均从 classpath 读 .st，替换为 DynamicPromptService 只需改一行：
+
+// 现在（classpath 加载）
+String fullTemplate = loadPrompt(resourceLoader);
+// 集成后（数据库优先 + classpath 兜底）
+String fullTemplate = dynamicPromptService.getTemplateContent("writer");
+
+执行 SQL 初始化：
+psql -h localhost -U deep_research -d deep_research \
+-f docs/optimization/sql/init_prompt_templates.sql
+
+执行后 JPA 的 ddl-auto: update 会自动建表，SQL 脚本负责填充初始数据。之后通过 UPDATE prompt_templates SET content=... 修改 Prompt 即可热生效（1 分钟缓存 TTL），无需重启。
+```
+
+#### 10.3.3 EnterpriseChatClientConfig — 统一 Advisor 链
+
+**位置**：`com.example.deepresearch.agent.bundle.EnterpriseChatClientConfig`
+
+**状态**：Bean 已注册（`enterpriseChatClient`），与 `AgentBundle` 双轨并行。
+
+**当前 Advisor 链**：TokenBudget → PiiMask → OutputGuard → ChatMemory → RAG(QuestionAnswerAdvisor) → TokenTrack → AuditLog
+
+**启用方式**：在需要完整企业级 Advisor 链的场景，注入 `@Qualifier("enterpriseChatClient") ChatClient` 替代 AgentBundle 中的独立 ChatClient Bean。
+
+**注意**：当前各 Agent 仍走 `AgentBundle` 配置的独立 ChatClient（仅含 `PiiMaskingAdvisor` + `TokenTrackingAdvisor`）。要在所有 Agent 上启用完整 Advisor 链，需修改 AgentBundle 中的 `createBuilder()` 方法将 `defaultAdvisors` 替换为 `EnterpriseChatClientConfig` 的链式配置。
+
+#### 10.3.4 TokenBudgetAdvisor + OutputGuardrailAdvisor + AuditLogAdvisor
+
+**位置**：`com.example.deepresearch.security`
+
+**状态**：Bean 已注册，已在 `EnterpriseChatClientConfig` 的 Advisor 链中装配。
+
+**独立启用**：在任意 ChatClient 的 `defaultAdvisors()` 中注册即可。
+
+```java
+return ChatClient.builder(chatModel)
+    .defaultAdvisors(
+        tokenBudgetAdvisor,      // 先检查配额
+        piiMaskingAdvisor,       // 再脱敏输入
+        outputGuardrailAdvisor,  // 最后检查输出
+        auditLogAdvisor          // 记录审计日志
+    )
+    .build();
+```
+
+#### 10.3.5 MilvusVectorStoreAdapter + RedisChatMemoryAdapter
+
+**位置**：`com.example.deepresearch.rag` / `com.example.deepresearch.memory`
+
+**状态**：Bean 已注册，实现 Spring AI 标准接口。已在 `EnterpriseChatClientConfig` 中通过 `QuestionAnswerAdvisor` 和 `MessageChatMemoryAdvisor` 使用。
+
+**注意**：`MilvusVectorStoreAdapter` 实现了 `VectorStore` 标准接口，可被任何依赖 `VectorStore` 的 Spring AI 组件直接使用（如 `QuestionAnswerAdvisor`、自定义 RAG 管道等）。
+
+### 10.4 未实施项（原计划外）
+
+| 项 | 原因 |
+|----|------|
+| Agent Prompt 模板迁移到 DB | Prompt 模板已入库（`init_prompt_templates.sql`），Agent 逐个迁移见 10.3.2 |
+| web-scout.st / local-scout.st 适配 @Tool 模式 | 两个模板仍使用旧变量 `{{searchQuery}}`/`{{results}}`/`{{documents}}`，需更新为 `{{searchPlanQueries}}` 配合 LLM 自主调用工具 |
+| 全 Agent Advisor 链统一 | 需评估 `enterpriseChatClient` 替代 `AgentBundle` 中的独立 ChatClient 对 Token 消耗的影响 |
+
+### 10.5 编译验证
+
+```
+$ mvn compile
+[INFO] BUILD SUCCESS
+```
+
+所有 4 轮改动编译通过，可随时启动测试。
+
+
