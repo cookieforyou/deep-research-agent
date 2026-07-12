@@ -1,5 +1,6 @@
 package com.example.deepresearch.agent.bundle;
 
+import com.example.deepresearch.agent.tool.SearchTools;
 import com.example.deepresearch.common.observability.TokenTrackingAdvisor;
 import com.example.deepresearch.security.PiiMaskingAdvisor;
 import org.slf4j.Logger;
@@ -151,11 +152,12 @@ public class AgentBundle {
             .build();
     }
 
-    /** WebScout — 网络取证、相关性过滤、SourceID 分配 (T=0.4) */
+    /** WebScout — 网络取证、相关性过滤、SourceID 分配 (T=0.4). 注册 @Tool 搜索工具 */
     @Bean("webScoutClient")
-    public ChatClient webScoutClient(ChatModel chatModel) {
-        log.info("注册 WebScout ChatClient (Flash, T=0.4)");
+    public ChatClient webScoutClient(ChatModel chatModel, SearchTools searchTools) {
+        log.info("注册 WebScout ChatClient (Flash, T=0.4, +search tools)");
         return createBuilder(chatModel)
+            .defaultTools(searchTools)
             .defaultOptions(DeepSeekChatOptions.builder()
                 .model(DeepSeekApi.ChatModel.DEEPSEEK_V4_FLASH)
                 .temperature(0.4)
@@ -163,11 +165,12 @@ public class AgentBundle {
             .build();
     }
 
-    /** LocalScout — 本地知识库取证、相关性过滤 (T=0.4) */
+    /** LocalScout — 本地知识库取证、相关性过滤 (T=0.4). 注册 @Tool 搜索工具 */
     @Bean("localScoutClient")
-    public ChatClient localScoutClient(ChatModel chatModel) {
-        log.info("注册 LocalScout ChatClient (Flash, T=0.4)");
+    public ChatClient localScoutClient(ChatModel chatModel, SearchTools searchTools) {
+        log.info("注册 LocalScout ChatClient (Flash, T=0.4, +search tools)");
         return createBuilder(chatModel)
+            .defaultTools(searchTools)
             .defaultOptions(DeepSeekChatOptions.builder()
                 .model(DeepSeekApi.ChatModel.DEEPSEEK_V4_FLASH)
                 .temperature(0.4)
