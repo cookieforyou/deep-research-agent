@@ -84,18 +84,16 @@ public class IntentRouterAgent {
             // 构建 user message（仅包含查询数据）
             String userPrompt = userPromptTemplate.replace("{{query}}", query);
 
-            // 使用 system/user 分离调用（架构级注入防护）
-            String rawOutput = chatClient.prompt()
+            // 使用 system/user 分离调用（架构级注入防护），
+            // .entity() 自动 JSON 解析 + 类型映射 + 自校正
+            RouteResult result = chatClient.prompt()
                 .advisors(a -> a.param("agent", "IntentRouter").param("tier", "flash"))
                 .system(systemPrompt)
                 .user(userPrompt)
                 .call()
-                .content();
+                .entity(RouteResult.class);
 
-            log.debug("[IntentRouter] LLM 原始输出: {}", rawOutput);
-
-            // 解析 JSON
-            RouteResult result = jsonUtils.safeParse(rawOutput, RouteResult.class, FALLBACK, "IntentRouter");
+            log.debug("[IntentRouter] 路由结果: intent={}, reasoning={}", result.intent(), result.reasoning());
 
             // 归一化 intent 值：LLM 可能输出 "deep_research" / "direct_answer" 等变体
             return normalizeIntent(result);

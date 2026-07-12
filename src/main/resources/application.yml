@@ -68,13 +68,12 @@ spring:
       base-url: ${DEEPSEEK_BASE_URL:https://api.deepseek.com}
       chat:
         enabled: true
-        options:
-          # 工具型 Agent 模型 (IntentRouter, Scout, Judge)
-          tool-model: ${DEEPSEEK_TOOL_MODEL:deepseek-v4-flash}
-          # 核心 Agent 模型 (Planner, Analyst, Writer, Reflect)
-          core-model: ${DEEPSEEK_CORE_MODEL:deepseek-v4-pro}
-          # 全局最大输出 token
-          max-tokens: 8192
+        # 工具型 Agent 模型 (IntentRouter, Scout)
+        tool-model: ${DEEPSEEK_TOOL_MODEL:deepseek-v4-flash}
+        # 核心 Agent 模型 (Planner, Analyst, Writer)
+        core-model: ${DEEPSEEK_CORE_MODEL:deepseek-v4-pro}
+        # 全局最大输出 token
+        max-tokens: 8192
 
     # ---------- MCP Client (Bocha Search MCP Server) ----------
     mcp:
@@ -85,6 +84,12 @@ spring:
             type: STREAMABLE_HTTP
             url: ${BOCHA_MCP_URL:https://api.bocha.cn/mcp}
 
+    # ---------- Chat Observations (Spring AI 2.0 内置可观测性) ----------
+    chat:
+      observations:
+        include-input: false   # 生产环境关闭防止隐私泄露
+        include-output: false
+
     # ---------- Embedding Model (DashScope text-embedding-v3 via OpenAI 兼容协议) ----------
     # 阿里 DashScope 提供 OpenAI 兼容的 embedding 端点，通过 spring-ai-starter-model-openai 接入
     openai:
@@ -94,9 +99,8 @@ spring:
         enabled: false  # 禁用 OpenAI Chat（使用 DeepSeek）
       embedding:
         enabled: true
-        options:
-          model: text-embedding-v3
-          # DashScope text-embedding-v3: 1024 维向量，支持中英文，国内合规
+        model: text-embedding-v3
+        # DashScope text-embedding-v3: 1024 维向量，支持中英文，国内合规
 
     # ---------- Vector Store (Milvus) ----------
     vectorstore:
@@ -317,6 +321,9 @@ management:
       show-details: when-authorized
       probes:
         enabled: true
+  observations:
+    enable:
+      spring.ai: true  # 启用 Spring AI 内置 Micrometer 观测
   metrics:
     export:
       # Prometheus — 由 Prometheus Server 定时抓取（开发/生产均可使用）

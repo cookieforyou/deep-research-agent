@@ -89,12 +89,13 @@ public class PlannerAgent {
                     memoryContext != null ? memoryContext : "（无历史上下文）")
                 .replace("{{current_time}}", java.time.LocalDateTime.now().toString());
 
-            String rawOutput = fallbackService.callWithFallback(
-                chatClient, fallbackClient, systemPrompt, userPrompt, "Planner");
+            // .entity() 自动 JSON 解析 + 类型映射 + 自校正（降级逻辑内置于 ModelFallbackService）
+            PlanResult result = fallbackService.callWithFallback(
+                chatClient, fallbackClient, systemPrompt, userPrompt, "Planner", PlanResult.class);
 
-            log.debug("[Planner] LLM 原始输出: {}", rawOutput);
-
-            PlanResult result = jsonUtils.safeParse(rawOutput, PlanResult.class, FALLBACK, "Planner");
+            log.debug("[Planner] LLM 解析完成: {} 个子问题, {} 个搜索计划",
+                result.subQuestions() != null ? result.subQuestions().size() : 0,
+                result.searchPlans() != null ? result.searchPlans().size() : 0);
 
             // 验证规划质量（LLM JSON 解析失败时字段可能为 null）
             if (result.subQuestions() == null || result.subQuestions().isEmpty()) {

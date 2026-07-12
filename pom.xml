@@ -119,6 +119,12 @@
             <artifactId>spring-ai-starter-mcp-client</artifactId>
         </dependency>
 
+        <!-- Tika Document Reader: 自动解析 PDF/Word/HTML/Markdown 等文档格式 -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-tika-document-reader</artifactId>
+        </dependency>
+
         <!-- ======================== LangGraph4j ======================== -->
 
         <!-- LangGraph4j Core: StateGraph 编排引擎（Java 版 LangGraph） -->

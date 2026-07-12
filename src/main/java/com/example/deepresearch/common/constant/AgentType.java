@@ -20,14 +20,8 @@ public enum AgentType {
     /** 本地知识库侦察 (Flash, T=0.4) */
     LOCAL_SCOUT("LocalScout", "flash"),
 
-    /** 证据裁判 (Flash, T=0.2) */
-    EVIDENCE_JUDGE("EvidenceJudge", "flash"),
-
     /** 分析师 (Pro, T=0.3) */
     ANALYST("Analyst", "pro"),
-
-    /** 反思补搜 (Pro, T=0.3) */
-    REFLECT("Reflect", "pro"),
 
     /** 撰稿人 (Pro, T=0.4) */
     WRITER("Writer", "pro"),

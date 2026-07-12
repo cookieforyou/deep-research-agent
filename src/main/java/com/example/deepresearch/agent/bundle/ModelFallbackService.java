@@ -119,6 +119,61 @@ public class ModelFallbackService {
     }
 
     /**
+     * 带降级的 LLM 调用 — 泛型实体版本.
+     * <p>
+     * 与 {@link #callWithFallback(ChatClient, ChatClient, String, String, String)}
+     * 共享相同的 CircuitBreaker 逻辑，但使用 Spring AI 2.0 的 {@code .entity()} API
+     * 替代手动 JSON 解析。
+     * </p>
+     *
+     * @param primary      主力 ChatClient（Pro 模型）
+     * @param fallback     降级 ChatClient（Flash 模型）
+     * @param systemPrompt System 消息，可为 null
+     * @param userPrompt   User 消息
+     * @param agentName    Agent 名称
+     * @param entityType   目标实体类型
+     * @param <T>          实体类型
+     * @return 解析后的实体对象
+     */
+    public <T> T callWithFallback(ChatClient primary, ChatClient fallback,
+                                   String systemPrompt, String userPrompt, String agentName,
+                                   Class<T> entityType) {
+        if (!enabled) {
+            return callWithRoles(primary, systemPrompt, userPrompt, agentName, "pro", entityType);
+        }
+
+        CircuitBreaker cb = cbRegistry.circuitBreaker("llm-circuit-breaker");
+
+        java.util.function.Supplier<T> primaryCall = () -> {
+            log.debug("[ModelFallback] {} 调用 Pro 模型 (entity)", agentName);
+            return callWithRoles(primary, systemPrompt, userPrompt, agentName, "pro", entityType);
+        };
+
+        java.util.function.Supplier<T> fallbackCall = () -> {
+            log.warn("[ModelFallback] {} Pro→Flash 降级 (entity, 熔断状态={})",
+                agentName, cb.getState());
+            tokenTracker.trackFallback(agentName, "pro", "flash");
+            return callWithRoles(fallback, systemPrompt, userPrompt, agentName, "flash", entityType);
+        };
+
+        java.util.function.Supplier<T> decorated = cb.decorateSupplier(primaryCall);
+        try {
+            return decorated.get();
+        } catch (Exception e) {
+            log.warn("[ModelFallback] {} Pro 调用失败 ({}), 切换到 Flash",
+                agentName, e.getMessage());
+            try {
+                return fallbackCall.get();
+            } catch (Exception fallbackError) {
+                log.error("[ModelFallback] {} Flash 也调用失败", agentName, fallbackError);
+                throw new RuntimeException(
+                    agentName + " 模型调用失败（Pro+Flash 均不可用）: " + fallbackError.getMessage(),
+                    fallbackError);
+            }
+        }
+    }
+
+    /**
      * 使用 system/user 角色分离调用 ChatClient，并传递 Agent 身份给 Advisor.
      *
      * @param client       ChatClient 实例
@@ -143,5 +198,29 @@ public class ModelFallbackService {
             .user(userPrompt)
             .call()
             .content();
+    }
+
+    /**
+     * 使用 system/user 角色分离调用 ChatClient，返回强类型实体.
+     * <p>
+     * 利用 Spring AI 2.0 的 {@code .entity()} API 进行自动 JSON 解析 + 类型映射 + 自校正。
+     * </p>
+     */
+    private <T> T callWithRoles(ChatClient client, String systemPrompt,
+                                 String userPrompt, String agentName, String tier,
+                                 Class<T> entityType) {
+        if (systemPrompt != null && !systemPrompt.isBlank()) {
+            return client.prompt()
+                .advisors(a -> a.param("agent", agentName).param("tier", tier))
+                .system(systemPrompt)
+                .user(userPrompt)
+                .call()
+                .entity(entityType);
+        }
+        return client.prompt()
+            .advisors(a -> a.param("agent", agentName).param("tier", tier))
+            .user(userPrompt)
+            .call()
+            .entity(entityType);
     }
 }

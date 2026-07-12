@@ -89,16 +89,14 @@ public class AnalystAgent {
                 .replace("{{evidencePool}}",
                     evidencePool != null ? buildEvidenceSummary(evidencePool) : "");
 
-            String rawOutput = chatClient.prompt()
+            // .entity() 自动 JSON 解析 + 类型映射 + 自校正
+            AnalysisResult result = chatClient.prompt()
                 .advisors(a -> a.param("agent", "Analyst").param("tier", "flash"))
                 .system(systemPrompt)
                 .user(userPrompt)
                 .call()
-                .content();
-            log.debug("[Analyst] LLM 输出: {}", rawOutput);
-
-            AnalysisResult result = jsonUtils.safeParse(
-                rawOutput, AnalysisResult.class, FALLBACK, "Analyst");
+                .entity(AnalysisResult.class);
+            log.debug("[Analyst] LLM 解析完成: {} 个结论", result.findings().size());
 
             // 分析质量日志
             double avgConfidence = result.findings().stream()

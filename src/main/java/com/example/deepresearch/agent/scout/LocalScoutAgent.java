@@ -150,25 +150,22 @@ public class LocalScoutAgent {
                 docsText.append(String.format("[%s] %s\n\n", docId, doc.getText()));
             }
 
-            // 调用 LLM 过滤和结构化（system/user 分离）
+            // 构建 user prompt（仅包含查询数据）
             String userPrompt = userPromptTemplate
                 .replace("{{query}}", originalQuery)
                 .replace("{{searchQuery}}", searchQuery)
                 .replace("{{documents}}", docsText.toString())
                 .replace("{{localIndex}}", String.format("LOCAL%02d", localIndex));
 
-            String rawOutput = chatClient.prompt()
+            // 调用 LLM 过滤和结构化（system/user 分离），
+            // .entity() 自动 JSON 解析 + 类型映射 + 自校正
+            EvidenceListWrapper wrapper = chatClient.prompt()
                 .advisors(a -> a.param("agent", "LocalScout").param("tier", "flash").param("skipPiiMask", true))
                 .system(systemPrompt)
                 .user(userPrompt)
                 .call()
-                .content();
-            log.debug("[LocalScout] LLM 输出: {}", rawOutput);
-
-            // 解析 LLM 输出
-            EvidenceListWrapper wrapper = jsonUtils.safeParse(
-                rawOutput, EvidenceListWrapper.class,
-                new EvidenceListWrapper(List.of()), "LocalScout");
+                .entity(EvidenceListWrapper.class);
+            log.debug("[LocalScout] LLM 解析完成: {} 条证据", wrapper.evidences().size());
 
             // 补充 sourceType 和检索时间
             return wrapper.evidences().stream()

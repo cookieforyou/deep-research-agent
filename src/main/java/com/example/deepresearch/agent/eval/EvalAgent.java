@@ -114,23 +114,21 @@ public class EvalAgent {
             log.debug("[Eval] Prompt 构造完成: system={} 字符, user={} 字符",
                 systemPrompt.length(), userPrompt.length());
 
-            String rawOutput = chatClient.prompt()
+            // .entity() 自动 JSON 解析 + 类型映射 + 自校正
+            EvalResult result = chatClient.prompt()
                 .advisors(a -> a.param("agent", "Eval").param("tier", "flash"))
                 .system(systemPrompt)
                 .user(userPrompt)
                 .call()
-                .content();
+                .entity(EvalResult.class);
 
-            if (rawOutput == null || rawOutput.isBlank()) {
+            if (result == null) {
                 log.warn("[Eval] LLM 返回空内容 (userPromptSize={} 字符) — " +
                     "可能是 userPrompt 过大或模型暂时不可用，返回 fallback", userPrompt.length());
                 return EvalResult.FALLBACK;
             }
 
-            log.debug("[Eval] LLM 原始输出长度: {} 字符", rawOutput.length());
-
-            EvalResult result = jsonUtils.safeParse(
-                rawOutput, EvalResult.class, EvalResult.FALLBACK, "Eval");
+            log.debug("[Eval] LLM 解析完成: overallScore={}", String.format("%.2f", result.overallScore()));
 
             // 验证评估质量
             if (result == EvalResult.FALLBACK) {

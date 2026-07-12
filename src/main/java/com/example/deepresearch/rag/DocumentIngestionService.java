@@ -3,9 +3,12 @@ package com.example.deepresearch.rag;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.document.Document;
+import org.springframework.ai.reader.tika.TikaDocumentReader;
+import org.springframework.ai.transformer.splitter.TokenTextSplitter;
+import org.springframework.core.io.InputStreamResource;
 import org.springframework.stereotype.Service;
 
-import java.util.ArrayList;
+import java.io.InputStream;
 import java.util.List;
 
 /**
@@ -37,88 +40,87 @@ public class DocumentIngestionService {
 
     private final VectorStoreService vectorStoreService;
 
+    /** Spring AI 2.0 内置 TokenTextSplitter（Builder 模式），替代自定义 chunkText() */
+    private final TokenTextSplitter splitter = TokenTextSplitter.builder()
+        .withChunkSize(800)
+        .withMinChunkSizeChars(200)
+        .withMinChunkLengthToEmbed(5)
+        .withMaxNumChunks(10000)
+        .withKeepSeparator(true)
+        .withPunctuationMarks(List.of('\n', '。', '？', '！', '；', '.', '?', '!', ';'))
+        .build();
+
     public DocumentIngestionService(VectorStoreService vectorStoreService) {
         this.vectorStoreService = vectorStoreService;
     }
 
     /**
-     * 导入单个文档.
+     * 导入文档（文件流版本 — 支持 PDF/Word/HTML/Markdown）.
+     * <p>
+     * 使用 Spring AI 2.0 的 TikaDocumentReader 自动识别文档格式并解析，
+     * 使用 TokenTextSplitter 按语义边界分块。
+     * 这是推荐的入口方法。
+     * </p>
      *
-     * @param rawContent 文档原始内容
-     * @param fileName   文件名（用于推断格式）
-     * @param tenantId   租户 ID（多租户隔离）
+     * @param input    文档输入流
+     * @param fileName 文件名（用于元数据标记和格式推断）
+     * @param tenantId 租户 ID（多租户隔离）
      * @return 导入的文档块数量
      */
-    public int ingestDocument(String rawContent, String fileName, String tenantId) {
-        log.info("[DocumentIngestion] 导入文档: fileName={}, tenantId={}", fileName, tenantId);
+    public int ingestDocument(InputStream input, String fileName, String tenantId) {
+        log.info("[DocumentIngestion] 导入文档（流式）: fileName={}, tenantId={}", fileName, tenantId);
 
-        // 步骤 1: 文本分块
-        List<String> chunks = chunkText(rawContent, 1000, 200);
+        // 步骤 1: TikaDocumentReader 自动识别并解析文档（包装 InputStream 为 Spring Resource）
+        TikaDocumentReader reader = new TikaDocumentReader(new InputStreamResource(input));
+        List<Document> docs = reader.get();
+        log.debug("[DocumentIngestion] Tika 解析完成: {} 个文档", docs.size());
 
-        // 步骤 2: 包装为 Spring AI Document
-        List<Document> documents = new ArrayList<>();
+        // 步骤 2: Spring AI TokenTextSplitter 智能分块
+        List<Document> chunks = splitter.apply(docs);
+
+        // 步骤 3: 填充元数据
         for (int i = 0; i < chunks.size(); i++) {
-            Document doc = new Document(chunks.get(i));
-            doc.getMetadata().put("doc_id", fileName + "_chunk_" + i);
-            doc.getMetadata().put("file_name", fileName);
-            doc.getMetadata().put("tenant_id", tenantId);
-            doc.getMetadata().put("chunk_index", i);
-            doc.getMetadata().put("total_chunks", chunks.size());
-            documents.add(doc);
+            Document chunk = chunks.get(i);
+            chunk.getMetadata().put("doc_id", fileName + "_chunk_" + i);
+            chunk.getMetadata().put("file_name", fileName);
+            chunk.getMetadata().put("tenant_id", tenantId);
+            chunk.getMetadata().put("chunk_index", i);
+            chunk.getMetadata().put("total_chunks", chunks.size());
         }
 
-        // 步骤 3: 写入向量库
-        vectorStoreService.insertDocuments(documents, tenantId);
+        // 步骤 4: 写入向量库
+        vectorStoreService.insertDocuments(chunks, tenantId);
 
-        log.info("[DocumentIngestion] 导入完成: {} 个分块", documents.size());
-        return documents.size();
+        log.info("[DocumentIngestion] 导入完成: {} 个分块", chunks.size());
+        return chunks.size();
     }
 
     /**
-     * 简单文本分块.
-     * <p>
-     * 按 chunkSize 切分，相邻块重叠 overlap 字符以保持语义连续性。
-     * 后续可升级为语义分块（按段落/标题边界）。
-     * </p>
+     * 导入文档（纯文本版本 — 兼容旧接口）.
      *
-     * @param text      原始文本
-     * @param chunkSize 块大小（字符数）
-     * @param overlap   重叠字符数
-     * @return 文本块列表
+     * @deprecated 推荐使用 {@link #ingestDocument(InputStream, String, String)} 支持更多格式
      */
-    List<String> chunkText(String text, int chunkSize, int overlap) {
-        if (text == null || text.isEmpty()) {
-            return List.of();
+    @Deprecated
+    public int ingestDocument(String rawContent, String fileName, String tenantId) {
+        log.info("[DocumentIngestion] 导入纯文本文档: fileName={}, tenantId={}", fileName, tenantId);
+
+        // 包装为单个 Document
+        Document doc = new Document(rawContent);
+        doc.getMetadata().put("file_name", fileName);
+
+        // 使用 Spring AI 2.0 TokenTextSplitter 分块
+        List<Document> chunks = splitter.apply(List.of(doc));
+        for (int i = 0; i < chunks.size(); i++) {
+            Document chunk = chunks.get(i);
+            chunk.getMetadata().put("doc_id", fileName + "_chunk_" + i);
+            chunk.getMetadata().put("tenant_id", tenantId);
+            chunk.getMetadata().put("chunk_index", i);
+            chunk.getMetadata().put("total_chunks", chunks.size());
         }
 
-        List<String> chunks = new ArrayList<>();
-        int start = 0;
+        vectorStoreService.insertDocuments(chunks, tenantId);
 
-        while (start < text.length()) {
-            int end = Math.min(start + chunkSize, text.length());
-
-            // 尽量在段落边界断开（向后查找最近的换行符）
-            if (end < text.length()) {
-                int breakPoint = text.lastIndexOf("\n\n", end);
-                if (breakPoint > start + chunkSize / 2) {
-                    end = breakPoint;
-                } else {
-                    // 回退到句号处
-                    breakPoint = text.lastIndexOf("。", end);
-                    if (breakPoint > start + chunkSize / 2) {
-                        end = breakPoint + 1;
-                    }
-                }
-            }
-
-            chunks.add(text.substring(start, end).trim());
-            // 已到达文本末尾，终止循环（避免 start 回退导致死循环）
-            if (end >= text.length()) {
-                break;
-            }
-            start = end - overlap;
-        }
-
-        return chunks;
+        log.info("[DocumentIngestion] 导入完成: {} 个分块", chunks.size());
+        return chunks.size();
     }
 }

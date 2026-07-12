@@ -111,24 +111,12 @@ public class WriterAgent {
                 .replace("{{sourceIndex}}",
                     sourceIndex != null ? String.join(", ", sourceIndex) : "");
 
-            String rawOutput = fallbackService.callWithFallback(
-                chatClient, fallbackClient, systemPrompt, userPrompt, "Writer");
-            log.debug("[Writer] LLM 输出长度: {} 字符",
-                rawOutput != null ? rawOutput.length() : 0);
-
-            WriteResult result = jsonUtils.safeParse(
-                rawOutput, WriteResult.class, FALLBACK, "Writer");
-
-            // Flash 模型降级时可能不输出 JSON 而是直接输出 Markdown 报告正文，
-            // 此时 JSON 解析会失败返回 FALLBACK 模板。若原始输出有实质内容，
-            // 直接将其作为报告正文，避免有效内容被丢弃
-            if (result == FALLBACK && rawOutput != null && rawOutput.length() > 200) {
-                log.warn("[Writer] JSON 解析失败，但原始输出有 {} 字符，直接作为报告正文使用",
-                    rawOutput.length());
-                String reportBody = sanitizeRawOutput(rawOutput);
-                result = new WriteResult(reportBody, Collections.emptyList(),
-                    countWords(reportBody), 1);
-            }
+            // .entity() 自动 JSON 解析 + 类型映射 + 自校正（降级逻辑内置于 ModelFallbackService）
+            WriteResult result = fallbackService.callWithFallback(
+                chatClient, fallbackClient, systemPrompt, userPrompt, "Writer", WriteResult.class);
+            log.debug("[Writer] LLM 解析完成: {} 字, {} 个引用",
+                result.reportContent() != null ? countWords(result.reportContent()) : 0,
+                result.usedCitations() != null ? result.usedCitations().size() : 0);
 
             // 保护：LLM JSON 可能缺少 usedCitations 字段导致 null
             List<String> citations = result.usedCitations() != null
@@ -151,28 +139,6 @@ public class WriterAgent {
             log.error("[Writer] 撰写异常，返回 fallback", e);
             return FALLBACK;
         }
-    }
-
-    /**
-     * 清理原始 LLM 输出为可用的报告正文.
-     * <p>
-     * 处理 Flash 模型降级时直接输出 Markdown 报告（非 JSON 格式）的情况。
-     * 移除可能的 JSON 残留字符和 Markdown 代码块标记。
-     * </p>
-     */
-    private String sanitizeRawOutput(String raw) {
-        String cleaned = raw.trim();
-        // 移除 Markdown 代码块标记
-        if (cleaned.startsWith("```")) {
-            int endOfFence = cleaned.indexOf('\n');
-            if (endOfFence > 0) {
-                cleaned = cleaned.substring(endOfFence + 1);
-            }
-        }
-        if (cleaned.endsWith("```")) {
-            cleaned = cleaned.substring(0, cleaned.length() - 3).trim();
-        }
-        return cleaned;
     }
 
     /**
