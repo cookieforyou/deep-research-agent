@@ -125,6 +125,18 @@
             <artifactId>spring-ai-tika-document-reader</artifactId>
         </dependency>
 
+        <!-- VectorStore 核心抽象: VectorStore 接口 + SearchRequest -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-vector-store</artifactId>
+        </dependency>
+
+        <!-- VectorStore Advisor: QuestionAnswerAdvisor（RAG 检索增强） -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-vector-store-advisor</artifactId>
+        </dependency>
+
         <!-- ======================== LangGraph4j ======================== -->
 
         <!-- LangGraph4j Core: StateGraph 编排引擎（Java 版 LangGraph） -->

@@ -39,6 +39,9 @@ public class SecurityLogService {
     /** Prompt 注入拦截事件标记 */
     static final Marker INJECTION_MARKER = MarkerFactory.getMarker("PROMPT_INJECTION");
 
+    /** 输出安全护栏拦截事件标记 */
+    static final Marker OUTPUT_GUARD_MARKER = MarkerFactory.getMarker("OUTPUT_GUARDRAIL");
+
     /**
      * 记录 PII 标记化事件.
      *
@@ -67,5 +70,17 @@ public class SecurityLogService {
         SECURITY_LOG.warn(INJECTION_MARKER,
             "[INJECTION] 检测到注入攻击: userId={}, tenantId={}, triggers='{}', queryDigest='{}'",
             userId, tenantId, reason, queryDigest);
+    }
+
+    /**
+     * 记录输出安全护栏拦截事件.
+     *
+     * @param userId      用户 ID
+     * @param matchedPattern 匹配到的敏感模式
+     */
+    public void logOutputBlocked(String userId, String matchedPattern) {
+        SECURITY_LOG.warn(OUTPUT_GUARD_MARKER,
+            "[OUTPUT_GUARD] LLM 输出被护栏拦截: userId={}, matchedPattern='{}'",
+            userId, matchedPattern);
     }
 }
