@@ -13,6 +13,7 @@ import com.example.deepresearch.common.observability.BusinessMetrics;
 import com.example.deepresearch.common.observability.TokenUsageTracker;
 import com.example.deepresearch.memory.MemoryManager;
 import com.example.deepresearch.security.PiiMaskingService;
+import com.example.deepresearch.security.TenantContext;
 import com.example.deepresearch.workflow.ResearchWorkflow;
 import com.example.deepresearch.workflow.state.ResearchState;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -384,7 +385,14 @@ public class ResearchOrchestratorService {
             return;
         }
 
+        // 捕获上下文以跨虚拟线程传播
+        String evalUserId = state.userId();
+        String evalTenantId = state.tenantId();
+
         CompletableFuture.runAsync(() -> {
+            // 恢复跨虚拟线程的上下文
+            TenantContext.setCurrentUser(evalUserId);
+            TenantContext.setCurrentTenant(evalTenantId);
             try {
                 EvalResult evalResult = evalAgent.evaluate(
                     query, state.subQuestions(), report, state.sourceIndex());

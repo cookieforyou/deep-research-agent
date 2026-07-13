@@ -41,7 +41,11 @@ public class TokenBudgetAdvisor implements CallAdvisor {
 
     @Override
     public ChatClientResponse adviseCall(ChatClientRequest request, CallAdvisorChain chain) {
-        String userId = (String) request.context().getOrDefault("user_id", "anonymous");
+        // 优先从 TenantContext 获取（跨虚拟线程传播），advisor context 作为 fallback
+        String userId = TenantContext.getCurrentUser();
+        if (userId == null) {
+            userId = (String) request.context().getOrDefault("user_id", "anonymous");
+        }
 
         // 前置：基于 Redis INCR + EXPIRE 的分布式限流
         String hourBucket = String.valueOf(System.currentTimeMillis() / 3600000);
