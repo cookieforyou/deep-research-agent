@@ -3,6 +3,7 @@ package com.example.deepresearch.agent.scout;
 import com.example.deepresearch.agent.tool.SearchTools;
 import com.example.deepresearch.common.model.Evidence;
 import com.example.deepresearch.common.model.Evidence.SourceType;
+import com.example.deepresearch.common.util.JsonParseUtils;
 import com.example.deepresearch.common.util.PromptSplitUtils;
 import com.example.deepresearch.common.util.PromptSplitUtils.PromptParts;
 import com.example.deepresearch.service.DynamicPromptService;
@@ -13,6 +14,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -38,16 +40,21 @@ public class LocalScoutAgent {
 
     private final ChatClient chatClient;
     private final SearchTools searchTools;
+    private final JsonParseUtils jsonUtils;
     private final String systemPrompt;
     private final String userPromptTemplate;
+
+    private static final EvidenceListWrapper FALLBACK = new EvidenceListWrapper(Collections.emptyList());
 
     public LocalScoutAgent(
         @Qualifier("localScoutClient") ChatClient chatClient,
         SearchTools searchTools,
+        JsonParseUtils jsonUtils,
         DynamicPromptService dynamicPromptService
     ) {
         this.chatClient = chatClient;
         this.searchTools = searchTools;
+        this.jsonUtils = jsonUtils;
         String fullTemplate = dynamicPromptService.getTemplateContent("local-scout");
         PromptParts parts = PromptSplitUtils.split(fullTemplate);
         this.systemPrompt = parts.system();
@@ -91,7 +98,7 @@ public class LocalScoutAgent {
                     .replace("{{tenantId}}", tenantId))
                 //.tools(searchTools)  // searchTools 已在 AgentBundle 中通过 defaultTools 注册，这里无需注入
                 .call()
-                .entity(EvidenceListWrapper.class);  // Round 1 已替换 safeParse
+                .entity(EvidenceListWrapper.class);
 
             log.debug("[LocalScout] LLM 解析完成: {} 条证据", result.evidences().size());
 
@@ -99,15 +106,52 @@ public class LocalScoutAgent {
                 .map(e -> new Evidence(
                     e.sourceId(), SourceType.LOCAL, e.url(), e.title(), e.content(),
                     0.92,  // 本地知识库基础评分最高
-                    e.relevanceRank(), e.domain(), LocalDateTime.now()))
+                    e.relevanceRank(),
+                    e.domain() != null ? e.domain() : "internal",
+                    LocalDateTime.now()))
                 .toList();
 
-        } catch (Exception e) {
-            log.error("[LocalScout] 检索异常", e);
-            return List.of();
+        } catch (Exception ex) {
+            log.warn("[LocalScout] .entity() 解析失败，尝试 JsonParseUtils 修复: {}", ex.getMessage());
+            try {
+                String raw = chatClient.prompt()
+                    .advisors(a -> a.param("agent", "LocalScout").param("tier", "flash")
+                        .param("skipPiiMask", true))
+                    .system(systemPrompt)
+                    .user(userPromptTemplate
+                        .replace("{{query}}", query)
+                        .replace("{{searchPlanQueries}}", queriesContext)
+                        .replace("{{tenantId}}", tenantId))
+                    .call()
+                    .content();
+                EvidenceListWrapper fallbackResult = jsonUtils.safeParse(raw,
+                    EvidenceListWrapper.class, FALLBACK, "LocalScout");
+                log.info("[LocalScout] JSON 修复后解析: {} 条证据", fallbackResult.evidences().size());
+                return fallbackResult.evidences().stream()
+                    .map(e -> new Evidence(
+                        e.sourceId(), SourceType.LOCAL, e.url(), e.title(), e.content(),
+                        0.92, e.relevanceRank(),
+                        e.domain() != null ? e.domain() : "internal",
+                        LocalDateTime.now()))
+                    .toList();
+            } catch (Exception fallbackError) {
+                log.error("[LocalScout] JSON 修复也失败", fallbackError);
+                return List.of();
+            }
         }
     }
 
-    public record EvidenceListWrapper(List<Evidence> evidences) {}
+    public record EvidenceListWrapper(List<ScoutEvidence> evidences) {}
+
+    /** 供 LLM 输出的简化证据 DTO（不含 retrievedAt，由 Java 代码设置） */
+    record ScoutEvidence(
+        String sourceId,
+        String title,
+        String url,
+        String content,
+        double score,
+        int relevanceRank,
+        String domain
+    ) {}
 
 }

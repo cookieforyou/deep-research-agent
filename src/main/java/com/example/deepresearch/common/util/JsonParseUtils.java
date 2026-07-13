@@ -242,7 +242,11 @@ public class JsonParseUtils {
         // 例如 "title": 【氨】2026年... → "title": "【氨】2026年..."
         repaired = UNQUOTED_STRING_VALUE.matcher(repaired).replaceAll("$1\"$2\"$3");
 
-        // 修复 4: 截断的 JSON — LLM 输出超出 token 限制导致数组/对象未闭合
+        // 修复 4: 缺失字段间逗号 — LLM 遗漏 JSON 对象字段之间的逗号
+        // 例如 "domain": "163.com" "title": "..." → "domain": "163.com", "title": "..."
+        repaired = repaired.replaceAll("(\"[^\"]+\")\\s+(\"[^\"]+\"\\s*:)", "$1, $2");
+
+        // 修复 5: 截断的 JSON — LLM 输出超出 token 限制导致数组/对象未闭合
         // 统计括号深度，自动补全缺失的 ] }
         repaired = closeUnclosedBrackets(repaired);
 

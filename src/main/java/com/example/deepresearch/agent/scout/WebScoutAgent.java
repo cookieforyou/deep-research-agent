@@ -3,6 +3,7 @@ package com.example.deepresearch.agent.scout;
 import com.example.deepresearch.agent.tool.SearchTools;
 import com.example.deepresearch.common.model.Evidence;
 import com.example.deepresearch.common.model.Evidence.SourceType;
+import com.example.deepresearch.common.util.JsonParseUtils;
 import com.example.deepresearch.common.util.PromptSplitUtils;
 import com.example.deepresearch.common.util.PromptSplitUtils.PromptParts;
 import com.example.deepresearch.service.DynamicPromptService;
@@ -13,6 +14,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -38,16 +40,22 @@ public class WebScoutAgent {
 
     private final ChatClient chatClient;
     private final SearchTools searchTools;
+    private final JsonParseUtils jsonUtils;
     private final String systemPrompt;
     private final String userPromptTemplate;
+
+    /** Fallback: LLM JSON 解析失败时返回空证据列表（不影响下游） */
+    private static final EvidenceListWrapper FALLBACK = new EvidenceListWrapper(Collections.emptyList());
 
     public WebScoutAgent(
         @Qualifier("webScoutClient") ChatClient chatClient,
         SearchTools searchTools,
+        JsonParseUtils jsonUtils,
         DynamicPromptService dynamicPromptService
     ) {
         this.chatClient = chatClient;
         this.searchTools = searchTools;
+        this.jsonUtils = jsonUtils;
         String fullTemplate = dynamicPromptService.getTemplateContent("web-scout");
         PromptParts parts = PromptSplitUtils.split(fullTemplate);
         this.systemPrompt = parts.system();
@@ -90,25 +98,60 @@ public class WebScoutAgent {
                     .replace("{{searchPlanQueries}}", queriesContext))
                 //.tools(searchTools)  // searchTools 已在 AgentBundle 中通过 defaultTools 注册，这里无需注入
                 .call()
-                .entity(EvidenceListWrapper.class);  // Round 1 已替换 safeParse
+                .entity(EvidenceListWrapper.class);
 
             log.debug("[WebScout] LLM 解析完成: {} 条证据", result.evidences().size());
 
             return result.evidences().stream()
                 .map(e -> new Evidence(
                     e.sourceId(), SourceType.WEB, e.url(), e.title(), e.content(),
-                    e.score(), e.relevanceRank(), e.domain(), LocalDateTime.now()))
+                    e.score(), e.relevanceRank(), e.domain() != null ? e.domain() : "unknown",
+                    LocalDateTime.now()))
                 .toList();
 
-        } catch (Exception e) {
-            log.error("[WebScout] 搜索取证异常", e);
-            return List.of();
+        } catch (Exception ex) {
+            log.warn("[WebScout] .entity() 解析失败，尝试 JsonParseUtils 修复: {}", ex.getMessage());
+            try {
+                // Fallback: .content() + JsonParseUtils 修复（补齐缺失逗号/截断括号等 LLM 常见 JSON 缺陷）
+                String raw = chatClient.prompt()
+                    .advisors(a -> a.param("agent", "WebScout").param("tier", "flash")
+                        .param("skipPiiMask", true))
+                    .system(systemPrompt)
+                    .user(userPromptTemplate
+                        .replace("{{query}}", query)
+                        .replace("{{searchPlanQueries}}", queriesContext))
+                    .call()
+                    .content();
+                EvidenceListWrapper fallbackResult = jsonUtils.safeParse(raw,
+                    EvidenceListWrapper.class, FALLBACK, "WebScout");
+                log.info("[WebScout] JSON 修复后解析: {} 条证据", fallbackResult.evidences().size());
+                return fallbackResult.evidences().stream()
+                    .map(e -> new Evidence(
+                        e.sourceId(), SourceType.WEB, e.url(), e.title(), e.content(),
+                        e.score(), e.relevanceRank(), e.domain() != null ? e.domain() : "unknown",
+                        LocalDateTime.now()))
+                    .toList();
+            } catch (Exception fallbackError) {
+                log.error("[WebScout] JSON 修复也失败", fallbackError);
+                return List.of();
+            }
         }
     }
 
     /**
-     * LLM 输出的证据列表包装.
+     * LLM 输出的证据列表包装 — 使用简化 DTO 避免 LLM 生成不需要的字段（如 retrievedAt）.
      */
-    public record EvidenceListWrapper(List<Evidence> evidences) {}
+    public record EvidenceListWrapper(List<ScoutEvidence> evidences) {}
+
+    /** 供 LLM 输出的简化证据 DTO（不含 retrievedAt，由 Java 代码设置） */
+    record ScoutEvidence(
+        String sourceId,
+        String title,
+        String url,
+        String content,
+        double score,
+        int relevanceRank,
+        String domain
+    ) {}
 
 }
