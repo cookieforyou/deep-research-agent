@@ -30,9 +30,20 @@ public class SearchTools {
     private final SearchTool searchTool;
     private final VectorStoreService vectorStoreService;
 
+    /**
+     * 租户 ID 暂存 — 由 Agent 在 LLM 调用前设置，解决 @Tool 执行时
+     * ThreadLocal TenantContext 在虚拟线程边界丢失的问题.
+     */
+    private volatile String storedTenantId;
+
     public SearchTools(SearchTool searchTool, VectorStoreService vectorStoreService) {
         this.searchTool = searchTool;
         this.vectorStoreService = vectorStoreService;
+    }
+
+    /** Agent 在 LLM 调用前设置当前租户 ID */
+    public void setTenantId(String tenantId) {
+        this.storedTenantId = tenantId;
     }
 
     @Tool(description = """
@@ -53,10 +64,12 @@ public class SearchTools {
         适用场景：查询公司政策、产品文档、历史研究报告等内部资料。""")
     public List<DocSearchResult> localSearch(
             @ToolParam(description = "检索查询语句，建议使用专业术语") String query) {
-        String tenantId = TenantContext.getCurrentTenant();
+        // 优先使用 Agent 设置的 storedTenantId，fallback 到 TenantContext ThreadLocal
+        String tenantId = storedTenantId != null ? storedTenantId
+            : TenantContext.getCurrentTenant();
+        if (tenantId == null) tenantId = "default";
         log.debug("[SearchTools] localSearch: query='{}', tenantId={}", query, tenantId);
-        return vectorStoreService.similaritySearch(
-                query, tenantId != null ? tenantId : "default", 4, 0.7)
+        return vectorStoreService.similaritySearch(query, tenantId, 4, 0.7)
             .stream().map(DocSearchResult::from).toList();
     }
 

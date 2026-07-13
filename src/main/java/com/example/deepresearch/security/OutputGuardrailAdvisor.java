@@ -55,7 +55,11 @@ public class OutputGuardrailAdvisor implements CallAdvisor {
         // 检查敏感模式
         for (String pattern : BLOCKED_PATTERNS) {
             if (output.toLowerCase().contains(pattern.toLowerCase())) {
-                String userId = (String) request.context().getOrDefault("user_id", "unknown");
+                // 优先从 TenantContext 获取（跨虚拟线程传播），advisor context 作为 fallback
+                String userId = TenantContext.getCurrentUser();
+                if (userId == null) {
+                    userId = (String) request.context().getOrDefault("user_id", "unknown");
+                }
                 securityLog.logOutputBlocked(userId, pattern);
                 log.warn("[OutputGuardrail] 输出被护栏拦截: pattern='{}'", pattern);
                 return replaceWithSafeResponse(response);

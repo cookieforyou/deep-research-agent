@@ -86,6 +86,9 @@ public class LocalScoutAgent {
             .map(q -> "- " + q).toList());
 
         try {
+            // 设置租户 ID 到 SearchTools，确保 @Tool 执行时 ThreadLocal 跨虚拟线程可用
+            searchTools.setTenantId(tenantId);
+
             // LLM 自主决定调用 localSearch 工具的时机和参数
             // ToolCallingAdvisor 自动处理工具调用循环
             EvidenceListWrapper result = chatClient.prompt()
@@ -114,6 +117,7 @@ public class LocalScoutAgent {
         } catch (Exception ex) {
             log.warn("[LocalScout] .entity() 解析失败，尝试 JsonParseUtils 修复: {}", ex.getMessage());
             try {
+                searchTools.setTenantId(tenantId);
                 String raw = chatClient.prompt()
                     .advisors(a -> a.param("agent", "LocalScout").param("tier", "flash")
                         .param("skipPiiMask", true))

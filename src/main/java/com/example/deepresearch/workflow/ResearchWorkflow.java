@@ -30,7 +30,9 @@ import org.springframework.stereotype.Component;
 
 import com.example.deepresearch.common.util.PromptSplitUtils;
 import com.example.deepresearch.common.util.PromptSplitUtils.PromptParts;
+import com.example.deepresearch.security.TenantContext;
 import com.example.deepresearch.service.DynamicPromptService;
+import org.slf4j.MDC;
 
 import java.util.List;
 import java.util.Map;
@@ -175,6 +177,26 @@ public class ResearchWorkflow {
             .addEdge("write", END);
     }
 
+    // =========================== 上下文传播 ===========================
+
+    /**
+     * 在 CompletableFuture 子虚拟线程中恢复父线程上下文.
+     * <p>
+     * {@link CompletableFuture#supplyAsync} 创建新的虚拟线程，
+     * ThreadLocal（TenantContext / MDC）不会自动传播。
+     * 每个工作流节点在执行 Agent 调用前应调用此方法恢复上下文。
+     * </p>
+     */
+    private void restoreContext(ResearchState state) {
+        if (state.tenantId() != null) {
+            TenantContext.setCurrentTenant(state.tenantId());
+        }
+        if (state.userId() != null) {
+            TenantContext.setCurrentUser(state.userId());
+        }
+        // MDC traceId 由 WorkflowTracingHelper.observe() 在内部设置，此处无需重复
+    }
+
     // =========================== 节点实现 ===========================
 
     /**
@@ -186,6 +208,7 @@ public class ResearchWorkflow {
      */
     private AsyncNodeAction<ResearchState> intentRouteNode() {
         return state -> CompletableFuture.supplyAsync(() -> {
+            restoreContext(state);
             String sessionId = state.sessionId();
             return tracingHelper.observe("workflow.intent_route",
                 Map.of("sessionId", sessionId),
@@ -217,6 +240,7 @@ public class ResearchWorkflow {
      */
     private AsyncNodeAction<ResearchState> directAnswerNode() {
         return state -> CompletableFuture.supplyAsync(() -> {
+            restoreContext(state);
             String sessionId = state.sessionId();
             return tracingHelper.observe("workflow.direct_answer",
                 Map.of("sessionId", sessionId),
@@ -275,6 +299,7 @@ public class ResearchWorkflow {
      */
     private AsyncNodeAction<ResearchState> planNode() {
         return state -> CompletableFuture.supplyAsync(() -> {
+            restoreContext(state);
             String sessionId = state.sessionId();
             return tracingHelper.observe("workflow.plan",
                 Map.of("sessionId", sessionId),
@@ -315,6 +340,7 @@ public class ResearchWorkflow {
      */
     private AsyncNodeAction<ResearchState> dualSearchNode() {
         return state -> CompletableFuture.supplyAsync(() -> {
+            restoreContext(state);
             String sessionId = state.sessionId();
             return tracingHelper.observe("workflow.dual_search",
                 Map.of("sessionId", sessionId),
@@ -330,8 +356,18 @@ public class ResearchWorkflow {
 
                     // 并行执行 Web 和 Local 检索（CompletableFuture + Virtual Threads）
                     try {
+                        // 捕获上下文以跨虚拟线程传播
+                        String parentTenantId = state.tenantId();
+                        String parentUserId = state.userId();
+                        String parentTraceId = MDC.get("traceId");
+
                         // Web 搜索子任务
                         CompletableFuture<List<Evidence>> webFuture = CompletableFuture.supplyAsync(() -> {
+                            // 恢复跨虚拟线程的上下文
+                            TenantContext.setCurrentTenant(parentTenantId);
+                            TenantContext.setCurrentUser(parentUserId);
+                            if (parentTraceId != null) MDC.put("traceId", parentTraceId);
+
                             progressPublisher.publish(sessionId,
                                 ProgressEvent.searching(sessionId, "Web", 0, queries.size()));
                             List<Evidence> results = webScout.search(state.query(), queries);
@@ -347,6 +383,11 @@ public class ResearchWorkflow {
 
                         // Local 检索子任务
                         CompletableFuture<List<Evidence>> localFuture = CompletableFuture.supplyAsync(() -> {
+                            // 恢复跨虚拟线程的上下文
+                            TenantContext.setCurrentTenant(parentTenantId);
+                            TenantContext.setCurrentUser(parentUserId);
+                            if (parentTraceId != null) MDC.put("traceId", parentTraceId);
+
                             progressPublisher.publish(sessionId,
                                 ProgressEvent.searching(sessionId, "Local", 0, queries.size()));
                             List<Evidence> results = localScout.search(
@@ -408,6 +449,7 @@ public class ResearchWorkflow {
      */
     private AsyncNodeAction<ResearchState> dedupFilterNode() {
         return state -> CompletableFuture.supplyAsync(() -> {
+            restoreContext(state);
             String sessionId = state.sessionId();
             return tracingHelper.observe("workflow.filter",
                 Map.of("sessionId", sessionId),
@@ -441,6 +483,7 @@ public class ResearchWorkflow {
      */
     private AsyncNodeAction<ResearchState> analyzeNode() {
         return state -> CompletableFuture.supplyAsync(() -> {
+            restoreContext(state);
             String sessionId = state.sessionId();
             return tracingHelper.observe("workflow.analyze",
                 Map.of("sessionId", sessionId),
@@ -482,6 +525,7 @@ public class ResearchWorkflow {
      */
     private AsyncNodeAction<ResearchState> writeNode() {
         return state -> CompletableFuture.supplyAsync(() -> {
+            restoreContext(state);
             String sessionId = state.sessionId();
             return tracingHelper.observe("workflow.write",
                 Map.of("sessionId", sessionId),
