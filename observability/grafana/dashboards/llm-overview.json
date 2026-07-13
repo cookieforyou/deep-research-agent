@@ -216,6 +216,44 @@
           "refId": "A"
         }
       ]
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Spring AI 内置 — ChatClient 调用速率 (5m, 按状态)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 36 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": { "drawStyle": "line", "lineInterpolation": "smooth", "stacking": { "mode": "normal" }, "fillOpacity": 15 }
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by(status) (rate(spring_ai_chat_client_requests_seconds_count[5m]))",
+          "legendFormat": "{{status}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Spring AI 内置 — Token 消耗速率 (5m, 按类型)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 36 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "drawStyle": "line", "lineInterpolation": "smooth", "stacking": { "mode": "normal" }, "fillOpacity": 15 }
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by(token_type) (rate(spring_ai_chat_model_token_usage_total[5m]))",
+          "legendFormat": "{{token_type}}",
+          "refId": "A"
+        }
+      ]
     }
   ],
   "refresh": "30s",

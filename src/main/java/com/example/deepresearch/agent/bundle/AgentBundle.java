@@ -2,7 +2,10 @@ package com.example.deepresearch.agent.bundle;
 
 import com.example.deepresearch.agent.tool.SearchTools;
 import com.example.deepresearch.common.observability.TokenTrackingAdvisor;
+import com.example.deepresearch.security.AuditLogAdvisor;
+import com.example.deepresearch.security.OutputGuardrailAdvisor;
 import com.example.deepresearch.security.PiiMaskingAdvisor;
+import com.example.deepresearch.security.TokenBudgetAdvisor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
@@ -49,13 +52,22 @@ public class AgentBundle {
 
     private static final Logger log = LoggerFactory.getLogger(AgentBundle.class);
 
+    private final TokenBudgetAdvisor tokenBudgetAdvisor;
     private final PiiMaskingAdvisor piiMaskingAdvisor;
+    private final OutputGuardrailAdvisor outputGuardrailAdvisor;
     private final TokenTrackingAdvisor tokenTrackingAdvisor;
+    private final AuditLogAdvisor auditLogAdvisor;
 
-    public AgentBundle(PiiMaskingAdvisor piiMaskingAdvisor,
-                       TokenTrackingAdvisor tokenTrackingAdvisor) {
+    public AgentBundle(TokenBudgetAdvisor tokenBudgetAdvisor,
+                       PiiMaskingAdvisor piiMaskingAdvisor,
+                       OutputGuardrailAdvisor outputGuardrailAdvisor,
+                       TokenTrackingAdvisor tokenTrackingAdvisor,
+                       AuditLogAdvisor auditLogAdvisor) {
+        this.tokenBudgetAdvisor = tokenBudgetAdvisor;
         this.piiMaskingAdvisor = piiMaskingAdvisor;
+        this.outputGuardrailAdvisor = outputGuardrailAdvisor;
         this.tokenTrackingAdvisor = tokenTrackingAdvisor;
+        this.auditLogAdvisor = auditLogAdvisor;
     }
 
     // =========================== ChatClient Bean (每个 Agent 一个) ===========================
@@ -67,10 +79,34 @@ public class AgentBundle {
     // PiiMaskingAdvisor 通过 defaultAdvisors() 注册到所有 ChatClient，
     // 在每次 LLM 调用前透明脱敏 PII。
 
-    /** 创建带 PiiMasking + TokenTracking Advisor 的 ChatClient.Builder */
+    /**
+     * 创建带全企业级 Advisor 链的 ChatClient.Builder.
+     * <p>
+     * Advisor 执行序（与 {@code EnterpriseChatClientConfig} 对齐）：
+     * <pre>
+     * 请求流入
+     *   ├─ TokenBudgetAdvisor       [200] Token预算检查 + 限流
+     *   ├─ PiiMaskingAdvisor        [300] 输入PII脱敏
+     *   ├─ OutputGuardrailAdvisor   [300] 输出安全护栏
+     *   ├─ TokenTrackingAdvisor     [900] Token用量追踪
+     *   └─ AuditLogAdvisor          [100] 审计日志（最外层记录请求/响应全貌）
+     * 响应返回
+     * </pre>
+     * <p>
+     * 注意：此链不包含 {@code MessageChatMemoryAdvisor} 和 {@code QuestionAnswerAdvisor}，
+     * 因为并非所有 Agent 都需要对话记忆或 RAG 检索（如 IntentRouter、Eval）。
+     * 需要记忆/RAG 的场景使用 {@code EnterpriseChatClientConfig#enterpriseChatClient}。
+     * </p>
+     */
     private ChatClient.Builder createBuilder(ChatModel chatModel) {
         return ChatClient.builder(chatModel)
-            .defaultAdvisors(piiMaskingAdvisor, tokenTrackingAdvisor);
+            .defaultAdvisors(
+                tokenBudgetAdvisor,      // [200] Token预算检查 + 限流
+                piiMaskingAdvisor,       // [300] 输入PII脱敏
+                outputGuardrailAdvisor,  // [300] 输出安全护栏
+                tokenTrackingAdvisor,    // [900] Token用量追踪
+                auditLogAdvisor          // [100] 审计日志
+            );
     }
 
     // --- Pro 层 Agent (deepseek-v4-pro) ---

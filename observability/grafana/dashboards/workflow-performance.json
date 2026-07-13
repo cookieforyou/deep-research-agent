@@ -200,6 +200,59 @@
           "refId": "A"
         }
       ]
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Spring AI 内置 — 工具调用耗时 (5m, 按工具)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 34 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": { "drawStyle": "line", "lineInterpolation": "smooth" }
+        }
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum by(le, tool_name) (rate(spring_ai_tool_call_duration_seconds_bucket[5m])))",
+          "legendFormat": "P50 — {{tool_name}}",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by(le, tool_name) (rate(spring_ai_tool_call_duration_seconds_bucket[5m])))",
+          "legendFormat": "P95 — {{tool_name}}",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Spring AI 内置 — 向量检索耗时 (5m)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 34 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": { "drawStyle": "line", "lineInterpolation": "smooth" }
+        }
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, rate(spring_ai_vector_store_search_duration_seconds_bucket[5m]))",
+          "legendFormat": "P50 — 向量检索",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, rate(spring_ai_vector_store_search_duration_seconds_bucket[5m]))",
+          "legendFormat": "P95 — 向量检索",
+          "refId": "B"
+        },
+        {
+          "expr": "rate(spring_ai_vector_store_search_duration_seconds_count[5m])",
+          "legendFormat": "调用速率 (req/s)",
+          "refId": "C"
+        }
+      ]
     }
   ],
   "refresh": "30s",

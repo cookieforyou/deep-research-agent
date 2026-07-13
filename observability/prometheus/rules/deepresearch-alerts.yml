@@ -181,3 +181,41 @@ groups:
             Pro 模型或 Search 引擎可能严重故障。
             建议: 检查对应服务的健康状态、API Key 有效期、
             网络连通性。熔断器将在半开状态自动尝试恢复。
+
+      # =======================================================================
+      # 10. Spring AI — 工具调用失败率过高（@Tool 架构新增）
+      # =======================================================================
+      - alert: ToolCallFailureRateHigh
+        expr: |
+          sum(rate(spring_ai_tool_call_duration_seconds_count{status="error"}[10m]))
+          / (sum(rate(spring_ai_tool_call_duration_seconds_count[10m])) > 0)
+          > 0.3
+        for: 5m
+        labels:
+          severity: warning
+          component: tool
+        annotations:
+          summary: "Spring AI 工具调用失败率 > 30%"
+          description: >
+            工具={{ $labels.tool_name }} 失败率={{ $value | humanizePercentage }}
+            @Tool 注解的工具（webSearch / localSearch）调用失败率异常。
+            可能原因: Bocha API 过载、Milvus 连接断开、SearchTools 内部异常。
+
+      # =======================================================================
+      # 11. Spring AI — ChatClient 错误率告警（内置指标交叉验证）
+      # =======================================================================
+      - alert: ChatClientErrorRateHigh
+        expr: |
+          sum(rate(spring_ai_chat_client_requests_seconds_count{status!="SUCCESS"}[10m]))
+          / (sum(rate(spring_ai_chat_client_requests_seconds_count[10m])) > 0)
+          > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          component: llm
+        annotations:
+          summary: "Spring AI ChatClient 非成功状态率 > 10%"
+          description: >
+            状态={{ $labels.status }} 比例={{ $value | humanizePercentage }}
+            ChatClient 层面检测到异常调用。
+            与自定义 deepresearch_llm_* 指标交叉验证，若不一致说明追踪系统可能存在问题。
