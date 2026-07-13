@@ -7,6 +7,8 @@
 
 基于 **Spring AI 2.0 + DeepSeek V4 + LangGraph4j** 的企业级 AI 多智能体深度研究系统。
 
+全面对齐 Spring AI 2.0 企业级最佳实践（`@Tool` 工具调用、`.entity()` 结构化输出、Advisor 链治理、DynamicPrompt 热更新、Spring AI 内置指标可观测性）。
+
 ## 架构概览
 
 ```
@@ -48,24 +50,24 @@
 
 ## 核心特性
 
-- 🤖 **7 个专业 Agent**: 意图路由 → 任务规划 → 双源并行检索(Web+Local RAG) → 去重过滤 → 分析归纳 → 报告撰写 → 异步质量评估
+- 🤖 **7 个专业 Agent**: 意图路由 → 任务规划 → 双源并行检索(Web+Local RAG @Tool) → 去重过滤 → 分析归纳 → 报告撰写 → 异步质量评估
+- 🔧 **Spring AI 2.0 全面对齐**: `@Tool` 工具调用 + `.entity()` 结构化输出 + Advisor 链统一治理 + DynamicPrompt 数据库热更新
+- 🛡️ **企业级 Advisor 链**: TokenBudget（分布式限流）→ PiiMask（输入脱敏）→ OutputGuard（输出护栏）→ TokenTrack（用量追踪）→ AuditLog（审计日志），所有 Agent 自动启用
 - ⚡ **语义缓存**: 相似 Query 直接返回历史报告（~1.5 秒 vs 完整流程 ~135 秒），基于 Milvus 向量相似度 + PostgreSQL 报告检索
 - 📊 **深度研报**: 2000+ 字 Markdown 结构化报告，精确引用溯源（Source ID）
-- 🔍 **双源并行检索**: 网络搜索(Bocha) + 本地知识库(Milvus)，Web 和 Local 各自内部也全并行执行
+- 🔍 **双源并行检索 @Tool**: LLM 自主调用 webSearch 和 localSearch 工具，ToolCallingAdvisor 自动编排搜索循环
 - 🧠 **三层记忆系统**: L1 Redis 短期会话记忆 + L2 Milvus 语义记忆（自生长） + L3 PostgreSQL 长期用户画像
 - 🔄 **语义记忆 L2 自生长**: 研究完成后报告自动向量化入库，下次研究时检索相似历史报告增强 Planner 上下文
-- ⚖️ **混合评分**: 规则引擎前置 + LLM 微调的证据可信度评分
+- 🔥 **Prompt 热更新**: DynamicPromptService 数据库优先加载，修改 `prompt_templates` 表后 1 分钟内自动生效，无需重启
 - ✨ **引用校验**: 自动检测并移除 LLM 幻觉产生的虚假引用
 - 📡 **SSE 实时推送**: 细粒度进度事件（按 Agent 阶段推送，含 `CACHE_HIT` 阶段）
 - 🏢 **多租户**: JWT 认证 + Milvus tenant_id 硬隔离
-- 📈 **可观测性**: OpenTelemetry Tracing + Token 成本监控 + Prometheus 指标采集 + Grafana 4 仪表盘 (44 面板) + 9 条告警规则
+- 📈 **可观测性**: OpenTelemetry Tracing + Token 成本监控 + Prometheus 指标采集 + Grafana 4 仪表盘 (46 面板，含 Spring AI 内置指标) + 11 条告警规则
 - 🐳 **一键部署**: Docker Compose 启动完整可观测性栈 (Prometheus + Grafana + OTel Collector + Jaeger)
 - 🛡️ **韧性**: Resilience4j 重试/熔断 + 搜索并发限流
 - 🎯 **异步质量评估**: EvalAgent 在 Writer 完成后异步评估报告质量（5 维度 1-5 分制），结果持久化并支持滑动窗口告警
 - 🔄 **模型降级**: Pro 模型不可用时自动降级至 Flash（CircuitBreaker + Fallback），保证研究不中断
 - 🔁 **搜索熔断**: Bocha 连续失败自动切换 Tavily 备用引擎，均不可用时进入纯 Local RAG 模式
-- 🛡️ **PII 脱敏**: 基于 Spring AI `BaseAdvisor` 的可逆标记化，手机/身份证/邮箱/银行卡自动替换为令牌，DeepSeek API 零 PII 泄露，内部存储保留原文
-- 🔒 **Prompt 注入防护**: Controller 层规则引擎前置拦截 + System/User 消息架构级分离，7 类正则模式 + 复合评分策略（误杀率 < 1%）
 
 ## 快速开始
 
@@ -159,22 +161,26 @@ data: {"sessionId":"a1b2c3d4","stage":"COMPLETED","nodeName":"done","percent":10
 
 | Agent | 模型层 | Temperature | 职责 |
 |:---|:---|:---|:---|
-| IntentRouter | Flash | 0.0 | 意图分类 (direct/research) |
-| Planner | Pro | 0.3 | 任务拆解+大纲+搜索计划 |
-| WebScout | Flash | 0.4 | 网络取证（并行） |
-| LocalScout | Flash | 0.4 | 知识库取证（并行） |
-| Analyst | Flash | 0.2 | 结论形成+完备性评估 |
-| Writer | Pro | 0.4 | 研报撰写+引用校验 |
-| Eval | Flash | 0.05 | 异步报告质量评估（5维度评分） |
+| IntentRouter | Flash | 0.0 | 意图分类 (direct/research)，`.entity(RouteResult.class)` |
+| Planner | Pro | 0.3 | 任务拆解+大纲+搜索计划，Pro→Flash CircuitBreaker 降级 |
+| WebScout | Flash | 0.4 | 网络取证 — LLM 自主调用 @Tool webSearch |
+| LocalScout | Flash | 0.4 | 知识库取证 — LLM 自主调用 @Tool localSearch |
+| Analyst | Flash | 0.2 | 结论形成+完备性评估，`.entity(AnalysisResult.class)` |
+| Writer | Pro | 0.4 | 研报撰写+引用校验，Pro→Flash CircuitBreaker 降级 |
+| Eval | Flash | 0.05 | 异步报告质量评估（5维度评分），`.entity(EvalResult.class)` |
 
 > 注：EvidenceJudge 已由 `EvidenceDeduplicationService`（代码级去重过滤）替代，Reflect 循环已移除（单轮模式）。EvalAgent 在 Writer 完成后异步执行（fire-and-forget）。
-> 安全防护：PiiMaskingAdvisor（BaseAdvisor 可逆标记化）+ PromptInjectionChecker（Controller 前置拦截）+ System/User 消息分离（架构级防护）。
+> 安全防护：5 个 Advisor 企业级链（TokenBudget + PiiMask + OutputGuard + TokenTrack + AuditLog）+ PromptInjectionChecker（Controller 前置拦截）+ System/User 消息分离（架构级防护）。
 
 ### 安全配置
 
 | 功能 | 配置路径 | 实现 |
 |:---|:---|:---|
+| Advisor 链治理 | `AgentBundle.createBuilder()` | TokenBudget → PiiMask → OutputGuard → TokenTrack → AuditLog，所有 Agent 自动继承 |
 | PII 脱敏 | `deep-research.pii.enabled` | `PiiMaskingService` 正则检测 → `PiiMaskingAdvisor` ChatClient 透明拦截 |
+| 输出安全护栏 | 默认开启 | `OutputGuardrailAdvisor` 敏感词拦截 + 安全兜底文案替换 |
+| Token 预算管控 | Redis 自动 | `TokenBudgetAdvisor` Redis INCR+EXPIRE 分布式限流（100次/小时/用户） |
+| 审计日志 | 默认开启 | `AuditLogAdvisor` AUDIT Logger 记录 agent/userId/status/latency |
 | Prompt 注入防护 | `deep-research.injection.*` | `PromptInjectionChecker` 复合评分规则引擎 → Controller 层 400 拦截 |
 | System/User 分离 | 无（默认开启） | `PromptSplitUtils` + 全部 7 个 Agent `.system().user()` 调用 |
 
@@ -247,8 +253,9 @@ deep-research:
 ## 项目文档
 
 - `CLAUDE.md` — 项目开发指南（架构、约定、常见任务、修复记录）
-- `docs/DeepResearch 多 Agent 行业深度研究助手 - 需求分析与技术实现报告.md` — 完整需求分析与技术方案
-- `docs/可观测性功能开发实现报告.md` — 可观测性 Phase 1-4 实施方案与落地记录
+- `docs/spring-ai-2-0/` — Spring AI 2.0 介绍、架构设计、最新特性与最佳实践（6 个文档）
+- `docs/optimization/Spring AI 2.0 项目优化实施方案与更新记录.md` — 8 轮优化实施完整记录（4 轮初始 + P0-P3 后续修复），含 10.7 节最终合规状态
+- `docs/optimization/sql/init_prompt_templates.sql` — Prompt 模板数据库初始化脚本（8 个模板，支持重复执行）
 
 ## 技术决策
 
@@ -262,12 +269,12 @@ deep-research:
 | 搜索 | Bocha Search API | AI Agent 专用搜索 |
 | 向量库 | Milvus | 自建，生产级性能 |
 | 嵌入模型 | DashScope text-embedding-v3 | 1024 维，中英文，国内合规 |
-| Prompt | 独立 .st 文件 | 不编译即可调优 |
+| Prompt | DynamicPromptService（DB优先+classpath兜底） | 运行时热更新，1分钟缓存TTL |
 | 引用校验 | 正则 + 合法 ID 集 | O(n) 确定性校验，不依赖 LLM |
 | 去重过滤 | 代码级（URL+标题+域名） | 比 LLM Judge 快且零 token 成本 |
 | 可观测性 | Micrometer + Prometheus + Grafana | Spring Boot Actuator 原生集成，零侵入 Token 追踪 |
 | 追踪 | OpenTelemetry (OTLP) + Jaeger | 工作流全链路可观测 |
-| 告警 | Prometheus Rules (9 条) | LLM 延迟/成本/安全/质量全覆盖 |
+| 告警 | Prometheus Rules (11 条) | LLM 延迟/成本/安全/质量/工具调用全覆盖 |
 
 ## License
 

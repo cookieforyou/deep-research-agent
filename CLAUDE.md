@@ -5,7 +5,10 @@
 ## 项目概述
 
 基于 **Spring AI 2.0.0 GA + DeepSeek V4 + LangGraph4j** 的企业级 AI 多智能体深度研究系统。
-核心能力：意图路由 → 任务规划 → 双源并行检索(Web+Local RAG) → 去重过滤 → 分析归纳 → 报告撰写 → 异步质量评估。
+
+核心能力：意图路由 → 任务规划 → 双源并行检索(Web+Local RAG @Tool) → 去重过滤 → 分析归纳 → 报告撰写 → 异步质量评估。
+
+全面对齐 Spring AI 2.0 企业级最佳实践（`@Tool` 工具调用、`.entity()` 结构化输出、Advisor 链治理、DynamicPrompt 热更新）。
 
 ## 技术栈
 
@@ -101,7 +104,7 @@ observability/                              # 可观测性基础设施（Docker 
 │   └── rules/deepresearch-alerts.yml       # 9 条告警规则
 ├── grafana/
 │   ├── datasources/datasource.yml          # Prometheus 数据源自动配置
-│   └── dashboards/                         # 4 个仪表盘 JSON（44 面板）
+│   └── dashboards/                         # 4 个仪表盘 JSON（46 面板）
 │       ├── llm-overview.json               # LLM Token/成本/延迟
 │       ├── workflow-performance.json       # 工作流节点/搜索/缓存
 │       ├── security-monitoring.json        # PII/注入/CB/Eval
@@ -127,15 +130,15 @@ START → intent_route ──[direct]──→ direct_answer → END
 
 | 节点 | Agent | 模型 | 说明 |
 |:---|:---|:---|:---|
-| intent_route | IntentRouterAgent | Flash T=0.0 | 意图分类 (direct/research) |
+| intent_route | IntentRouterAgent | Flash T=0.0 | 意图分类 (direct/research)，`.entity(RouteResult.class)` |
 | [cache] | SemanticCacheService | - | 语义缓存检查（Milvus 向量相似度 > 阈值 → PG 获取完整报告） |
-| direct_answer | ChatClient 直接调用 | Flash | 简单回答（不走研究流程） |
-| plan | PlannerAgent | Pro T=0.3 → Flash fallback | 任务拆解+搜索计划（接收 memoryContext） |
-| dual_search | WebScoutAgent + LocalScoutAgent | Flash T=0.4 | 双源全并行检索（ResilientSearchTool: Bocha→Tavily→纯LocalRAG） |
+| direct_answer | ChatClient 直接调用 | Flash | 简单回答（不走研究流程），DynamicPromptService 加载模板 |
+| plan | PlannerAgent | Pro T=0.3 → Flash fallback | 任务拆解+搜索计划（接收 memoryContext），`.entity(PlanResult.class)` |
+| dual_search | WebScoutAgent + LocalScoutAgent | Flash T=0.4 | 双源全并行检索（LLM 自主调用 @Tool webSearch/localSearch） |
 | filter | EvidenceDeduplicationService | 代码级 | URL/标题去重+域名过滤+评分截断 |
-| analyze | AnalystAgent | Flash T=0.2 | 结论形成+完备性评估 |
-| write | WriterAgent + CitationValidator | Pro T=0.4 → Flash fallback | 报告撰写+引用合法性校验 |
-| [async:eval] | EvalAgent | Flash T=0.05 | 5维度质量评估（相关性/连贯性/引用准确性/完备性/简洁性），结果写入 ResearchHistory |
+| analyze | AnalystAgent | Flash T=0.2 | 结论形成+完备性评估，`.entity(AnalysisResult.class)` |
+| write | WriterAgent + CitationValidator | Pro T=0.4 → Flash fallback | 报告撰写+引用合法性校验，`.entity(WriteResult.class)` |
+| [async:eval] | EvalAgent | Flash T=0.05 | 5维度质量评估（相关性/连贯性/引用准确性/完备性/简洁性），`.entity(EvalResult.class)` |
 
 ## 三层记忆架构
 
@@ -165,9 +168,10 @@ START → intent_route ──[direct]──→ direct_answer → END
 ### Agent 设计
 - 每个 Agent 是独立的 `@Service`，封装一个 `ChatClient`
 - 7 个 Agent 分属两层模型：2 个 Pro（Planner/Writer）+ 5 个 Flash（IntentRouter/WebScout/LocalScout/Analyst/Eval）
-- 每个 Agent 有独立的 Prompt 模板文件（`prompts/*.st`）
-- 每个 Agent 有 JSON Fallback 默认值（保证 LLM 解析失败不崩溃）
-- WebScoutAgent 和 LocalScoutAgent 均使用全并行模式（虚拟线程）
+- 每个 Agent 的 Prompt 模板通过 `DynamicPromptService.getTemplateContent("id")` 加载（DB优先 + classpath兜底，1分钟缓存TTL，支持热更新）
+- 每个 Agent 使用 `.call().entity(Record.class)` 实现结构化输出（替代手动 JSON 解析）
+- WebScoutAgent 和 LocalScoutAgent 使用 LLM 自主调用 `@Tool`（webSearch/localSearch），工具通过 `AgentBundle.defaultTools()` 注册
+- `ModelFallbackService` 提供泛型 `<T>` 降级方法，内置 CircuitBreaker 保护
 
 ### 工作流
 - 使用 LangGraph4j StateGraph（非 Spring StateMachine）
@@ -186,6 +190,12 @@ START → intent_route ──[direct]──→ direct_answer → END
 - WebFlux 响应式安全（非 Servlet）
 - JWT Bearer Token 无状态认证
 - 禁用 Session 和 CSRF
+- **企业级 Advisor 链**（AgentBundle 统一装配，所有 ChatClient 自动启用）：
+  - `TokenBudgetAdvisor` [200] — Redis INCR+EXPIRE 分布式限流（100次/小时/用户）
+  - `PiiMaskingAdvisor` [300] — 输入 PII 可逆标记化
+  - `OutputGuardrailAdvisor` [300] — 输出敏感词拦截 + 安全兜底文案
+  - `TokenTrackingAdvisor` [900] — LLM Token 用量追踪（Micrometer 指标）
+  - `AuditLogAdvisor` [100] — AUDIT Logger 审计日志（agent/userId/status/latency）
 - **PII 脱敏**: 基于 Spring AI `BaseAdvisor` 的可逆标记化（零泄露到 DeepSeek API，内部存储保留原文）
   - 支持类型: 手机号、身份证、邮箱、银行卡
   - `PiiMaskingAdvisor.before()` 标记化 → 外部 API 只看到 `<PHONE_0>` 等令牌
@@ -229,11 +239,12 @@ cd observability && docker compose up -d
 # 启动 4 个服务: Prometheus(:9090) + Grafana(:3000) + OTel Collector(:4318) + Jaeger(:16686)
 ```
 
-#### 告警规则 (9 条)
+#### 告警规则 (11 条)
 
 | # | 告警名 | 严重度 | 条件 |
 |:---|:---|:---|:---|
-| 1 | `LLMLatencyHigh` | warning | P95 Pro > 60s / Flash > 30s |
+| 1 | `LLMLatencyHigh` | warning | P95 Pro > 60s |
+| 1b | `LLMLatencyFlashHigh` | info | P95 Flash > 30s |
 | 2 | `ResearchTokenCostHigh` | warning | 15min Token 速率 > 200K |
 | 3 | `SearchFallbackRateHigh` | critical | Bocha→Tavily 降级率 > 50% |
 | 4 | `CacheHitRateLow` | info | 命中率 < 10% |
@@ -242,6 +253,8 @@ cd observability && docker compose up -d
 | 7 | `WorkflowExecutionFailure` | critical | 工作流 error 状态 |
 | 8 | `EvalScoreLow` | warning | 评估分 < 3.0 |
 | 9 | `CircuitBreakerOpen` | critical | CB OPEN > 2min |
+| 10 | `ToolCallFailureRateHigh` | warning | @Tool 失败率 > 30% |
+| 11 | `ChatClientErrorRateHigh` | warning | ChatClient 非成功状态 > 10% |
 
 ## 已知问题与修复记录
 
@@ -267,11 +280,22 @@ cd observability && docker compose up -d
 | 可观测性 Phase 1-3（Metrics + Tracing + Token 监控） | ✅ 已完成 — Prometheus + TokenTrackingAdvisor + WorkflowTracingHelper + BusinessMetrics | 2026-07-09 |
 | PII 搜索结果误匹配（~27次/run） | ✅ 已修复 — 数学校验 (GB 11643 + Luhn) + skipPiiMask 外部数据跳过 | 2026-07-09 |
 | Planner JSON 解析失败（LLM 尾逗号） | ✅ 已修复 — JsonParseUtils.repairCommonJsonIssues() 二次解析 | 2026-07-09 |
-| 可观测性 Phase 4（Grafana + Docker Compose + 告警） | ✅ 已完成 — 4 仪表盘 44 面板 + 9 告警规则 + OTel Collector + Jaeger | 2026-07-10 |
+| 可观测性 Phase 4（Grafana + Docker Compose + 告警） | ✅ 已完成 — 4 仪表盘 46 面板 + 11 告警规则 + OTel Collector + Jaeger | 2026-07-10 |
 | 搜索/PII/工作流 Metrics 未接入（BusinessMetrics 定义但遗漏调用） | ✅ 已修复 — ResilientSearchTool + PiiMaskingService + ResearchOrchestratorService 均已接入 | 2026-07-10 |
 | `AtomicDouble` 编译错误 (Java 21 不存在) | ✅ 已修复 — 改用 `AtomicReference<Double>` | 2026-07-10 |
 | WebScout JSON 解析失败（LLM 遗漏 value 双引号 — 中文括号 `【】` 所致） | ✅ 已修复 — `UNQUOTED_STRING_VALUE` 正则自动补全 | 2026-07-10 |
 | WebScout JSON 解析失败（LLM 输出截断 — token 限制导致数组/字符串未闭合） | ✅ 已修复 — `closeUnclosedBrackets()` 栈逆序闭合括号+字符串 | 2026-07-10 |
+| **Spring AI 2.0 全面对齐优化**（4轮16项） | ✅ 已完成 | 2026-07-12 |
+| —— 配置扁平化 + 代码清理 + `.entity()` 替换 + 文档处理标准化 | ✅ 已完成 — Round 1 | 2026-07-12 |
+| —— VectorStore/ChatMemory 适配 + Advisor 链 + Token预算 + 输出护栏 | ✅ 已完成 — Round 2 | 2026-07-12 |
+| —— `@Tool` 注解 SearchTools + Scout Agent 重构 | ✅ 已完成 — Round 3 | 2026-07-12 |
+| —— 高级RAG + Prompt动态管理 + HITL预留 + Eval测试集 | ✅ 已完成 — Round 4 | 2026-07-12 |
+| **后续修复 P0-P3** | ✅ 已完成 | 2026-07-13 |
+| —— P0: web-scout.st / local-scout.st 适配 @Tool 模式 + SQL 同步 | ✅ 已修复 | 2026-07-13 |
+| —— P1: 全部 Agent 迁移到 DynamicPromptService（删 ~120 行） | ✅ 已修复 | 2026-07-13 |
+| —— P2: AgentBundle 升级为 5 个 Advisor 全企业级链 | ✅ 已修复 | 2026-07-13 |
+| —— P3: Grafana/Prometheus 补充 Spring AI 内置指标（46面板+11告警） | ✅ 已修复 | 2026-07-13 |
+| `.tools(searchTools)` 重复注册导致 IllegalStateException | ✅ 已修复 — 移除 Agent 中重复调用，工具由 defaultTools 统一注册 | 2026-07-13 |
 
 ### Milvus 集合 Schema Migration 注意
 语义缓存功能需要 `session_id`、`query`、`chunk_index` 三个字段。如果 Milvus 集合是 2026-07-08 之前创建的，需重建：
@@ -285,10 +309,12 @@ cd observability && docker compose up -d
 
 ### 添加新 Agent
 1. 在 `agent/` 下创建新包和 Service 类
-2. 在 `AgentBundle.java` 注册 ChatClient Bean
-3. 在 `prompts/` 下创建 `.st` Prompt 模板
-4. 在 `ResearchWorkflow.java` 中添加 Node 和 Edge
-5. 在 `AgentType.java` 添加枚举值
+2. 在 `AgentBundle.java` 注册 ChatClient Bean（自动继承 5 个 Advisor）
+3. 使用 `DynamicPromptService.getTemplateContent("id")` 加载 Prompt（DB优先 + classpath兜底）
+4. 在 `prompts/` 下创建 `.st` Prompt 模板
+5. 在 `docs/optimization/sql/init_prompt_templates.sql` 添加数据库初始化条目
+6. 在 `ResearchWorkflow.java` 中添加 Node 和 Edge
+7. 在 `AgentType.java` 添加枚举值
 
 ### 调试工作流
 - 查看日志：`logs/research.log`，每个 Agent/Service 有独立日志前缀
@@ -297,8 +323,9 @@ cd observability && docker compose up -d
 - LangGraph4j 支持 `.compile().getGraph()` 导出 DOT 格式可视化
 
 ### 调整 Prompt
-- 直接编辑 `src/main/resources/prompts/*.st`，无需重新编译
-- 重启应用后生效（或配置 Spring DevTools 热加载）
+- **推荐方式**：通过数据库热更新：`UPDATE prompt_templates SET content='新prompt...' WHERE id='writer'`，1 分钟内自动生效（缓存 TTL），无需重启
+- **兜底方式**：直接编辑 `src/main/resources/prompts/*.st`，重启应用后生效
+- Prompt 加载链：内存缓存（1min TTL）→ PostgreSQL `prompt_templates` 表 → classpath `.st` 文件兜底
 
 ### 检查语义记忆
 - Milvus 中 `doc_type == "research_history"` 的记录即语义记忆
