@@ -35,85 +35,115 @@
 
 ```
 src/main/java/com/example/deepresearch/
-├── DeepResearchApplication.java            # Spring Boot 主入口
-├── api/                                    # 接口层
-│   ├── controller/ResearchController.java  # REST + SSE
-│   └── dto/                                # 请求/响应 DTO
-├── agent/                                  # 智能体层（7 个 Agent）
-│   ├── bundle/AgentBundle.java             # ChatClient Bean 配置（两层模型+降级）
-│   ├── bundle/ModelFallbackService.java    # 模型降级服务 (Pro→Flash CircuitBreaker)
-│   ├── intent/IntentRouterAgent.java       # 意图路由 (Flash T=0.0)
-│   ├── planner/PlannerAgent.java           # 任务规划 (Pro T=0.3 → Flash fallback)
-│   ├── scout/WebScoutAgent.java            # 网络取证 (Flash T=0.4) — 并行
-│   ├── scout/LocalScoutAgent.java          # 本地 RAG 取证 (Flash T=0.4) — 并行
-│   ├── analyst/AnalystAgent.java           # 分析归纳 (Flash T=0.2)
-│   ├── writer/WriterAgent.java             # 报告撰写 (Pro T=0.4 → Flash fallback)
-│   └── eval/EvalAgent.java                 # 异步报告质量评估 (Flash T=0.05)
-├── workflow/                               # 编排层
-│   ├── ResearchWorkflow.java               # LangGraph4j StateGraph 定义
-│   └── state/ResearchState.java            # 状态定义（AgentState 子类）
-├── memory/                                 # 记忆系统（三层架构）
-│   ├── MemoryManager.java                  # 统一入口
-│   ├── ShortTermMemoryService.java         # Redis 会话记忆
-│   ├── SemanticMemoryService.java          # Milvus 语义记忆（L2 自生长）
-│   ├── LongTermMemoryService.java          # PG 用户画像
-│   ├── entity/                             # JPA 实体（UserProfile, ResearchHistory）
-│   └── repository/                         # Spring Data 仓库
-├── rag/                                    # RAG 检索
-│   ├── VectorStoreService.java             # Milvus 封装（检索+插入+删除）
-│   ├── MilvusConfig.java                   # Milvus 连接配置
-│   ├── DocumentIngestionService.java       # 文档 ETL（L3 用户注入层）
-│   └── CitationValidator.java              # 引用合法性校验
-├── cache/                                  # 缓存层
-│   └── SemanticCacheService.java           # 语义缓存（Milvus 向量相似度 + PG 报告检索）
-├── tool/                                   # 工具层
-│   ├── search/SearchTool.java              # 搜索接口
-│   ├── search/BochaSearchTool.java         # Bocha 搜索实现
-│   ├── search/FallbackSearchTool.java      # 降级搜索 (Tavily API)
-│   ├── search/ResilientSearchTool.java     # 韧性搜索装饰器 (CircuitBreaker+Fallback)
-│   ├── EvidenceScorer.java                 # 规则评分器
-│   └── EvidenceDeduplicationService.java   # 代码级去重过滤
-├── security/                               # 安全认证 + 输入防护
-│   ├── SecurityConfig.java                 # WebFlux Security
-│   ├── TenantJwtAuthenticationConverter.java
-│   ├── TenantContext.java                  # ThreadLocal 租户上下文
-│   ├── PiiMaskingService.java              # PII 可逆标记化（手机/身份证/邮箱/银行卡）
-│   ├── PiiMaskingAdvisor.java              # Spring AI Advisor — ChatClient 透明拦截
-│   ├── PromptInjectionChecker.java         # Prompt 注入检测（复合评分规则引擎）
-│   └── SecurityLogService.java             # 安全事件日志（独立 SECURITY Logger）
-├── service/                                # 业务服务
-│   ├── ResearchOrchestratorService.java    # 研究编排入口
-│   └── ProgressEventPublisher.java         # SSE 事件发布
-└── common/                                 # 公共组件
-    ├── config/                             # Spring 配置
-    ├── exception/                          # 全局异常处理
-    ├── model/                              # 领域模型（Record）
-    ├── util/JsonParseUtils.java            # LLM JSON 安全解析
-    ├── util/PromptSplitUtils.java          # Prompt System/User 分离工具
-    ├── observability/                      # 可观测性（Metrics + Tracing + Token监控）
-    │   ├── TokenUsageTracker.java          # LLM Token/成本/延迟指标注册
-    │   ├── TokenTrackingAdvisor.java       # BaseAdvisor — 透明拦截所有 ChatClient 调用
-    │   ├── BusinessMetrics.java            # 业务指标集中注册（搜索/缓存/安全/工作流）
-    │   └── WorkflowTracingHelper.java      # 工作流节点 Tracing + MDC traceId
-    └── constant/AgentType.java
+├── DeepResearchApplication.java                # Spring Boot 主入口
+├── api/                                        # 接口层 (WebFlux + SSE)
+│   ├── controller/ResearchController.java      # REST 研究接口
+│   └── dto/                                    # ResearchRequest, ResearchResponse, ProgressEvent
+├── agent/                                      # 智能体层（7 个 Agent + 工具/配置）
+│   ├── bundle/AgentBundle.java                 # ChatClient Bean 工厂（5 Advisor 全链 + 两层模型）
+│   ├── bundle/EnterpriseChatClientConfig.java  # 高级 ChatClient（含记忆+RAG 的 7 Advisor 完整链）
+│   ├── bundle/ModelFallbackService.java        # 模型降级 (Pro→Flash CircuitBreaker + 泛型 entity)
+│   ├── intent/IntentRouterAgent.java           # 意图路由 (Flash T=0.0, .entity)
+│   ├── planner/PlannerAgent.java               # 任务规划 (Pro T=0.3 → Flash fallback, .entity)
+│   ├── scout/WebScoutAgent.java                # 网络取证 (Flash T=0.4, LLM @Tool webSearch)
+│   ├── scout/LocalScoutAgent.java              # 本地 RAG 取证 (Flash T=0.4, LLM @Tool localSearch)
+│   ├── tool/SearchTools.java                   # @Tool 工具集 (webSearch + localSearch)
+│   ├── analyst/AnalystAgent.java               # 分析归纳 (Flash T=0.2, .entity)
+│   ├── writer/WriterAgent.java                 # 报告撰写 (Pro T=0.4 → Flash fallback, .entity)
+│   └── eval/EvalAgent.java                     # 异步评估 (Flash T=0.05, .entity)
+├── workflow/                                   # LangGraph4j 编排层
+│   ├── ResearchWorkflow.java                   # StateGraph 定义（单轮 DAG，6 节点）
+│   └── state/ResearchState.java                # 工作流状态（AgentState 子类）
+├── memory/                                     # 三层记忆系统
+│   ├── MemoryManager.java                      # 统一入口（三元组 Mono.zip）
+│   ├── ShortTermMemoryService.java             # L1 Redis 会话记忆
+│   ├── SemanticMemoryService.java              # L2 Milvus 语义记忆（自生长）
+│   ├── LongTermMemoryService.java              # L3 PG 长期用户画像
+│   ├── RedisChatMemoryAdapter.java             # Spring AI ChatMemory 适配器
+│   ├── entity/                                 # JPA 实体（UserProfile, ResearchHistory, PromptTemplateEntity）
+│   └── repository/                             # Spring Data 仓库（含 PromptTemplateRepository）
+├── rag/                                        # RAG 检索增强
+│   ├── VectorStoreService.java                 # Milvus SDK 封装（检索+插入+删除，租户隔离）
+│   ├── MilvusVectorStoreAdapter.java           # Spring AI VectorStore 适配器
+│   ├── AdvancedRagService.java                 # 高级 RAG（查询改写 + QuestionAnswerAdvisor）
+│   ├── MilvusConfig.java                       # Milvus 连接配置
+│   ├── DocumentIngestionService.java           # 文档 ETL（TikaDocumentReader + TokenTextSplitter）
+│   └── CitationValidator.java                  # 引用合法性校验
+├── cache/                                      # 缓存层
+│   └── SemanticCacheService.java               # 语义缓存（Milvus 相似度 → PG 报告检索）
+├── tool/                                       # 搜索工具层
+│   ├── search/SearchTool.java                  # 搜索接口
+│   ├── search/BochaSearchTool.java             # Bocha AI 搜索
+│   ├── search/FallbackSearchTool.java          # 降级搜索 (Tavily API)
+│   ├── search/ResilientSearchTool.java         # 韧性搜索 (CircuitBreaker+Bocha→Tavily→纯LocalRAG)
+│   ├── EvidenceScorer.java                     # 规则评分器（域名权威度）
+│   └── EvidenceDeduplicationService.java       # 代码级去重过滤
+├── security/                                   # 企业级安全防护
+│   ├── SecurityConfig.java                     # WebFlux Security（JWT + 禁用 Session/CSRF）
+│   ├── TenantJwtAuthenticationConverter.java   # JWT → TenantContext 转换
+│   ├── TenantContext.java                      # ThreadLocal 多租户上下文
+│   ├── TokenBudgetAdvisor.java                 # [200] Token 预算管控（Redis 分布式限流 100次/h/用户）
+│   ├── PiiMaskingAdvisor.java                  # [300] PII 脱敏（BaseAdvisor 可逆标记化）
+│   ├── PiiMaskingService.java                  # PII 正则检测 + ConcurrentHashMap Vault
+│   ├── OutputGuardrailAdvisor.java             # [300] 输出安全护栏（敏感词拦截+兜底文案）
+│   ├── AuditLogAdvisor.java                    # [100] 审计日志（AUDIT Logger）
+│   ├── PromptInjectionChecker.java             # Prompt 注入检测（复合评分规则引擎）
+│   ├── SecurityLogService.java                 # 安全事件日志（SECURITY Logger）
+│   └── ApprovalService.java                    # HITL 人工审批预留接口
+├── service/                                    # 业务服务
+│   ├── ResearchOrchestratorService.java        # 研究编排入口（缓存检查+工作流启动）
+│   ├── DynamicPromptService.java               # Prompt 动态管理（DB优先→缓存→classpath兜底，1min TTL）
+│   └── ProgressEventPublisher.java             # SSE 事件发布
+└── common/                                     # 公共组件
+    ├── config/                                 # Spring 配置（App, DeepResearch, Jackson, VirtualThread, WebFlux, HttpClient, Observability）
+    ├── constant/AgentType.java                 # Agent 枚举（7 个 Agent + modelTier）
+    ├── exception/                              # 全局异常处理（GlobalExceptionHandler, ResearchException）
+    ├── model/                                  # 领域模型 — Java Records（AnalysisResult, EvalResult, Evidence, Finding, PlanResult, SearchPlan, SearchResult, WriteResult, AuditFlag）
+    ├── util/JsonParseUtils.java                # LLM JSON 安全解析（修复尾逗号/未闭合括号/中文引号）
+    ├── util/PromptSplitUtils.java              # Prompt System/User 分离
+    └── observability/                          # 可观测性（Metrics + Tracing + Token 监控）
+        ├── TokenUsageTracker.java              # LLM Token/成本/延迟指标注册
+        ├── TokenTrackingAdvisor.java           # BaseAdvisor — 透明拦截所有 ChatClient 调用
+        ├── BusinessMetrics.java                # 业务指标集中注册（搜索/缓存/安全/工作流）
+        └── WorkflowTracingHelper.java          # 工作流节点 Tracing（Span + MDC traceId）
 
-observability/                              # 可观测性基础设施（Docker Compose）
-├── docker-compose.yml                      # Prometheus + Grafana + OTel Collector + Jaeger
+observability/                                  # 可观测性基础设施（Docker Compose 一键部署）
+├── docker-compose.yml                          # Prometheus + Grafana + OTel Collector + Jaeger
 ├── prometheus/
-│   ├── prometheus.yml                      # 双源抓取（App 直连 + OTel Collector）
-│   └── rules/deepresearch-alerts.yml       # 9 条告警规则
+│   ├── prometheus.yml                          # 双源抓取（App 直连 /actuator/prometheus + OTel Collector）
+│   └── rules/deepresearch-alerts.yml           # 11 条告警规则
 ├── grafana/
-│   ├── datasources/datasource.yml          # Prometheus 数据源自动配置
-│   └── dashboards/                         # 4 个仪表盘 JSON（46 面板）
-│       ├── llm-overview.json               # LLM Token/成本/延迟
-│       ├── workflow-performance.json       # 工作流节点/搜索/缓存
-│       ├── security-monitoring.json        # PII/注入/CB/Eval
-│       └── system-resources.json           # JVM/GC/HTTP/CPU/线程
-└── otel-collector/otelcol-config.yml       # OTLP → Traces→Jaeger, Metrics→Prometheus
+│   ├── datasources/datasource.yml              # Prometheus 数据源自动配置
+│   └── dashboards/                             # 4 个仪表盘 JSON（46 面板，含 Spring AI 内置指标）
+│       ├── llm-overview.json                   # LLM Token/成本/延迟 + Spring AI ChatClient 调用速率
+│       ├── workflow-performance.json           # 工作流/搜索/缓存 + 工具调用/向量检索耗时
+│       ├── security-monitoring.json            # PII/注入/CB/Eval + 搜索降级趋势
+│       └── system-resources.json               # JVM/GC/HTTP/CPU/线程
+└── otel-collector/otelcol-config.yml           # OTLP → Traces→Jaeger, Metrics→Prometheus
 
 src/main/resources/
-├── application.yml                         # 主配置（含 PII/注入/缓存/降级）
-└── prompts/                                # 10 个 Prompt 模板（.st，含 2 个已废弃）
+├── application.yml                             # 主配置（DeepSeek/OpenAI/Embedding/MCP/安全/缓存/降级/可观测性）
+└── prompts/                                    # 8 个 Prompt 模板（.st，DynamicPromptService 数据库优先加载）
+    ├── intent-router.st
+    ├── planner.st
+    ├── web-scout.st                            # @Tool 模式
+    ├── local-scout.st                          # @Tool 模式
+    ├── analyst.st
+    ├── writer.st
+    ├── direct-answer.st
+    └── eval.st
+
+docs/
+├── spring-ai-2-0/                              # Spring AI 2.0 参考文档（6 个）
+│   ├── introduction/                           # 介绍 + 深度分析 + 全景分析
+│   └── practices/                              # 企业级落地最佳实践
+├── optimization/                               # 优化记录
+│   ├── Spring AI 2.0 项目适配优化清单.md          # 16 项优化分析
+│   ├── Spring AI 2.0 项目优化实施方案与更新记录.md  # 8 轮实施记录 + 最终合规状态（38/38 ✅）
+│   └── sql/init_prompt_templates.sql           # Prompt 模板 DB 初始化（8 模板，ON CONFLICT 可重复执行）
+└── day0/
+    ├── 可观测性功能开发实现报告.md
+    └── 需求分析与技术实现报告.md
 ```
 
 ## 工作流拓扑（单轮 DAG，无循环）
@@ -161,7 +191,8 @@ START → intent_route ──[direct]──→ direct_answer → END
 ### 代码风格
 - **Java Records** 用于领域模型（不可变性 + Jackson 3 原生支持）
 - **LangGraph4j AgentState** 用于工作流状态（Channel 语义）
-- 所有 LLM JSON 输出通过 `JsonParseUtils.safeParse()` 解析
+- 所有 LLM JSON 输出通过 `.call().entity(Record.class)` 自动解析（Spring AI 2.0 结构化输出 + 自校正）
+- `JsonParseUtils` 保留作为极端边缘情况兜底（修复尾逗号/未闭合括号/中文引号）
 - Agent Bean 通过 `@Qualifier` 注入（pro/flash 两层）
 - 并行检索使用 `CompletableFuture.supplyAsync()` + `ExecutorService`（虚拟线程）
 
