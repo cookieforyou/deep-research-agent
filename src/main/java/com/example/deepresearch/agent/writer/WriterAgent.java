@@ -8,15 +8,13 @@ import com.example.deepresearch.common.util.JsonParseUtils;
 import com.example.deepresearch.common.util.PromptSplitUtils;
 import com.example.deepresearch.common.util.PromptSplitUtils.PromptParts;
 import com.example.deepresearch.security.PiiMaskingService;
+import com.example.deepresearch.service.DynamicPromptService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.core.io.Resource;
-import org.springframework.core.io.ResourceLoader;
 import org.springframework.stereotype.Service;
 
-import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.List;
 
@@ -68,7 +66,7 @@ public class WriterAgent {
         @Qualifier("writerFallbackClient") ChatClient fallbackClient,
         ModelFallbackService fallbackService,
         JsonParseUtils jsonUtils,
-        ResourceLoader resourceLoader,
+        DynamicPromptService dynamicPromptService,
         PiiMaskingService piiMaskingService
     ) {
         this.chatClient = chatClient;
@@ -76,7 +74,7 @@ public class WriterAgent {
         this.fallbackService = fallbackService;
         this.jsonUtils = jsonUtils;
         this.piiMaskingService = piiMaskingService;
-        String fullTemplate = loadPrompt(resourceLoader);
+        String fullTemplate = dynamicPromptService.getTemplateContent("writer");
         PromptParts parts = PromptSplitUtils.split(fullTemplate);
         this.systemPrompt = parts.system();
         this.userPromptTemplate = parts.user();
@@ -200,26 +198,4 @@ public class WriterAgent {
         return (int) (chineseChars + englishWords);
     }
 
-    private String loadPrompt(ResourceLoader loader) {
-        try {
-            Resource resource = loader.getResource("classpath:prompts/writer.st");
-            return resource.getContentAsString(StandardCharsets.UTF_8);
-        } catch (Exception e) {
-            log.error("[Writer] 无法加载 prompt 模板", e);
-            return """
-                你是专业研究报告撰稿人。请基于以下研究结论和证据，撰写一份深度研究报告。
-
-                研究主题: {{query}}
-                报告大纲:
-                {{reportOutline}}
-                研究结论:
-                {{findings}}
-                证据来源:
-                {{evidencePool}}
-                合法引用ID: {{sourceIndex}}
-
-                返回 JSON: {"reportContent": "完整的Markdown报告...", "usedCitations": ["WEB01_1"], "wordCount": 3000, "sectionCount": 5}
-                """;
-        }
-    }
 }

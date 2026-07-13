@@ -5,15 +5,13 @@ import com.example.deepresearch.common.util.JsonParseUtils;
 import com.example.deepresearch.common.util.PromptSplitUtils;
 import com.example.deepresearch.common.util.PromptSplitUtils.PromptParts;
 import com.example.deepresearch.security.PiiMaskingService;
+import com.example.deepresearch.service.DynamicPromptService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.core.io.Resource;
-import org.springframework.core.io.ResourceLoader;
 import org.springframework.stereotype.Service;
 
-import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -64,7 +62,7 @@ public class EvalAgent {
     public EvalAgent(
         @Qualifier("evalClient") ChatClient chatClient,
         JsonParseUtils jsonUtils,
-        ResourceLoader resourceLoader,
+        DynamicPromptService dynamicPromptService,
         PiiMaskingService piiMaskingService,
         AtomicReference<Double> evalScoreGauge
     ) {
@@ -72,7 +70,7 @@ public class EvalAgent {
         this.jsonUtils = jsonUtils;
         this.piiMaskingService = piiMaskingService;
         this.evalScoreGauge = evalScoreGauge;
-        String fullTemplate = loadPrompt(resourceLoader);
+        String fullTemplate = dynamicPromptService.getTemplateContent("eval");
         PromptParts parts = PromptSplitUtils.split(fullTemplate);
         this.systemPrompt = parts.system();
         this.userPromptTemplate = parts.user();
@@ -202,23 +200,4 @@ public class EvalAgent {
         return joined;
     }
 
-    private String loadPrompt(ResourceLoader loader) {
-        try {
-            Resource resource = loader.getResource("classpath:prompts/eval.st");
-            return resource.getContentAsString(StandardCharsets.UTF_8);
-        } catch (Exception e) {
-            log.error("[Eval] 无法加载 prompt 模板", e);
-            return """
-                你是研究报告质量评估专家。请对以下报告进行5维度评估（1-5分制）：
-                相关性、连贯性、引用准确性、完备性、简洁性。
-
-                原始query: {{query}}
-                子问题: {{subQuestions}}
-                合法引用: {{sourceIndex}}
-                报告: {{report}}
-
-                返回JSON: {"relevance": 3.0, "coherence": 3.0, "citationAccuracy": 3.0, "completeness": 3.0, "conciseness": 3.0, "overallScore": 3.0, "summary": "评估失败"}
-                """;
-        }
-    }
 }

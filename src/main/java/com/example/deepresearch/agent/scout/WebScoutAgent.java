@@ -5,15 +5,13 @@ import com.example.deepresearch.common.model.Evidence;
 import com.example.deepresearch.common.model.Evidence.SourceType;
 import com.example.deepresearch.common.util.PromptSplitUtils;
 import com.example.deepresearch.common.util.PromptSplitUtils.PromptParts;
+import com.example.deepresearch.service.DynamicPromptService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.core.io.Resource;
-import org.springframework.core.io.ResourceLoader;
 import org.springframework.stereotype.Service;
 
-import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -46,11 +44,11 @@ public class WebScoutAgent {
     public WebScoutAgent(
         @Qualifier("webScoutClient") ChatClient chatClient,
         SearchTools searchTools,
-        ResourceLoader resourceLoader
+        DynamicPromptService dynamicPromptService
     ) {
         this.chatClient = chatClient;
         this.searchTools = searchTools;
-        String fullTemplate = loadPrompt(resourceLoader);
+        String fullTemplate = dynamicPromptService.getTemplateContent("web-scout");
         PromptParts parts = PromptSplitUtils.split(fullTemplate);
         this.systemPrompt = parts.system();
         this.userPromptTemplate = parts.user();
@@ -113,23 +111,4 @@ public class WebScoutAgent {
      */
     public record EvidenceListWrapper(List<Evidence> evidences) {}
 
-    private String loadPrompt(ResourceLoader loader) {
-        try {
-            Resource resource = loader.getResource("classpath:prompts/web-scout.st");
-            return resource.getContentAsString(StandardCharsets.UTF_8);
-        } catch (Exception e) {
-            log.error("[WebScout] 无法加载 prompt 模板", e);
-            return """
-                你是网络取证专家。使用 webSearch 工具搜索互联网，从搜索结果中提取与研究问题
-                相关的结构化证据。
-
-                研究问题: {{query}}
-                搜索指引（参考，非强制执行）:
-                {{searchPlanQueries}}
-
-                请使用 webSearch 工具执行搜索，然后返回 JSON:
-                {"evidences": [{"sourceId":"WEB01_1","url":"...","title":"...","content":"...","score":0.7,"relevanceRank":1,"domain":"..."}]}
-                """;
-        }
-    }
 }

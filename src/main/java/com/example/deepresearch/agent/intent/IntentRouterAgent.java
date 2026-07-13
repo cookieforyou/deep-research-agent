@@ -4,15 +4,12 @@ import com.example.deepresearch.common.util.JsonParseUtils;
 import com.example.deepresearch.common.util.PromptSplitUtils;
 import com.example.deepresearch.common.util.PromptSplitUtils.PromptParts;
 import com.example.deepresearch.security.PiiMaskingService;
+import com.example.deepresearch.service.DynamicPromptService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.core.io.Resource;
-import org.springframework.core.io.ResourceLoader;
 import org.springframework.stereotype.Service;
-
-import java.nio.charset.StandardCharsets;
 
 /**
  * 意图路由 Agent — 判断用户查询应走 Direct Answer 还是 Deep Research 流程.
@@ -41,13 +38,13 @@ public class IntentRouterAgent {
     public IntentRouterAgent(
         @Qualifier("intentRouterClient") ChatClient chatClient,
         JsonParseUtils jsonUtils,
-        ResourceLoader resourceLoader,
+        DynamicPromptService dynamicPromptService,
         PiiMaskingService piiMaskingService
     ) {
         this.chatClient = chatClient;
         this.jsonUtils = jsonUtils;
         this.piiMaskingService = piiMaskingService;
-        String fullTemplate = loadPrompt(resourceLoader);
+        String fullTemplate = dynamicPromptService.getTemplateContent("intent-router");
         PromptParts parts = PromptSplitUtils.split(fullTemplate);
         this.systemPrompt = parts.system();
         this.userPromptTemplate = parts.user();
@@ -149,25 +146,4 @@ public class IntentRouterAgent {
             || q.matches("^(什么是|定义|解释一下|怎么读|翻译).{0,10}$");  // 简单定义类（短）
     }
 
-    /**
-     * 加载 Prompt 模板文件.
-     */
-    private String loadPrompt(ResourceLoader loader) {
-        try {
-            Resource resource = loader.getResource("classpath:prompts/intent-router.st");
-            return resource.getContentAsString(StandardCharsets.UTF_8);
-        } catch (Exception e) {
-            log.error("[IntentRouter] 无法加载 prompt 模板文件", e);
-            // 内置最小可用 Prompt（防止文件丢失导致系统不可用）
-            return """
-                你是一个查询意图分类器。判断用户查询属于哪种类型。
-
-                查询: {{query}}
-
-                请返回 JSON: {"intent": "direct" | "research", "reasoning": "判断理由"}
-                - direct: 简单问答、定义、计算、问候
-                - research: 需要多源信息、分析、比较、趋势判断
-                """;
-        }
-    }
 }

@@ -26,14 +26,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatModel;
-import org.springframework.core.io.Resource;
-import org.springframework.core.io.ResourceLoader;
 import org.springframework.stereotype.Component;
 
 import com.example.deepresearch.common.util.PromptSplitUtils;
 import com.example.deepresearch.common.util.PromptSplitUtils.PromptParts;
+import com.example.deepresearch.service.DynamicPromptService;
 
-import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -87,7 +85,7 @@ public class ResearchWorkflow {
     private final ExecutorService virtualThreadExecutor;
     private final DeepResearchProperties properties;
     private final ChatModel chatModel;
-    private final ResourceLoader resourceLoader;
+    private final DynamicPromptService dynamicPromptService;
     private final MemoryManager memoryManager;
     private final TokenTrackingAdvisor tokenTrackingAdvisor;
     private final WorkflowTracingHelper tracingHelper;
@@ -105,7 +103,7 @@ public class ResearchWorkflow {
         ExecutorService virtualThreadExecutor,
         DeepResearchProperties properties,
         ChatModel chatModel,
-        ResourceLoader resourceLoader,
+        DynamicPromptService dynamicPromptService,
         MemoryManager memoryManager,
         TokenTrackingAdvisor tokenTrackingAdvisor,
         WorkflowTracingHelper tracingHelper
@@ -122,7 +120,7 @@ public class ResearchWorkflow {
         this.virtualThreadExecutor = virtualThreadExecutor;
         this.properties = properties;
         this.chatModel = chatModel;
-        this.resourceLoader = resourceLoader;
+        this.dynamicPromptService = dynamicPromptService;
         this.memoryManager = memoryManager;
         this.tokenTrackingAdvisor = tokenTrackingAdvisor;
         this.tracingHelper = tracingHelper;
@@ -228,10 +226,8 @@ public class ResearchWorkflow {
                             "direct_answer", "正在生成直接回答..."));
 
                     try {
-                        // 加载 Direct Answer Prompt 模板
-                        Resource resource = resourceLoader.getResource(
-                            "classpath:prompts/direct-answer.st");
-                        String promptTemplate = resource.getContentAsString(StandardCharsets.UTF_8);
+                        // 加载 Direct Answer Prompt 模板（DB优先 + classpath兜底）
+                        String promptTemplate = dynamicPromptService.getTemplateContent("direct-answer");
 
                         // 分离 system/user（架构级注入防护）
                         PromptParts parts = PromptSplitUtils.split(promptTemplate);

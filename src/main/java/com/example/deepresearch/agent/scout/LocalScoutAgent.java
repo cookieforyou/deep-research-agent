@@ -5,15 +5,13 @@ import com.example.deepresearch.common.model.Evidence;
 import com.example.deepresearch.common.model.Evidence.SourceType;
 import com.example.deepresearch.common.util.PromptSplitUtils;
 import com.example.deepresearch.common.util.PromptSplitUtils.PromptParts;
+import com.example.deepresearch.service.DynamicPromptService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.core.io.Resource;
-import org.springframework.core.io.ResourceLoader;
 import org.springframework.stereotype.Service;
 
-import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -46,11 +44,11 @@ public class LocalScoutAgent {
     public LocalScoutAgent(
         @Qualifier("localScoutClient") ChatClient chatClient,
         SearchTools searchTools,
-        ResourceLoader resourceLoader
+        DynamicPromptService dynamicPromptService
     ) {
         this.chatClient = chatClient;
         this.searchTools = searchTools;
-        String fullTemplate = loadPrompt(resourceLoader);
+        String fullTemplate = dynamicPromptService.getTemplateContent("local-scout");
         PromptParts parts = PromptSplitUtils.split(fullTemplate);
         this.systemPrompt = parts.system();
         this.userPromptTemplate = parts.user();
@@ -112,23 +110,4 @@ public class LocalScoutAgent {
 
     public record EvidenceListWrapper(List<Evidence> evidences) {}
 
-    private String loadPrompt(ResourceLoader loader) {
-        try {
-            Resource resource = loader.getResource("classpath:prompts/local-scout.st");
-            return resource.getContentAsString(StandardCharsets.UTF_8);
-        } catch (Exception e) {
-            log.error("[LocalScout] 无法加载 prompt 模板", e);
-            return """
-                你是内部知识库取证专家。使用 localSearch 工具检索企业知识库，
-                从文档中提取与研究问题相关的结构化证据。
-
-                研究问题: {{query}}
-                检索指引（参考，非强制执行）:
-                {{searchPlanQueries}}
-
-                请使用 localSearch 工具执行检索，然后返回 JSON:
-                {"evidences": [{"sourceId":"LOCAL01_1","url":"...","title":"...","content":"...","score":0.92,"relevanceRank":1,"domain":"internal"}]}
-                """;
-        }
-    }
 }

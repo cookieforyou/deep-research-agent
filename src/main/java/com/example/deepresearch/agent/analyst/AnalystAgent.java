@@ -6,15 +6,13 @@ import com.example.deepresearch.common.model.Finding;
 import com.example.deepresearch.common.util.JsonParseUtils;
 import com.example.deepresearch.common.util.PromptSplitUtils;
 import com.example.deepresearch.common.util.PromptSplitUtils.PromptParts;
+import com.example.deepresearch.service.DynamicPromptService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.core.io.Resource;
-import org.springframework.core.io.ResourceLoader;
 import org.springframework.stereotype.Service;
 
-import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 /**
@@ -57,11 +55,11 @@ public class AnalystAgent {
     public AnalystAgent(
         @Qualifier("analystClient") ChatClient chatClient,
         JsonParseUtils jsonUtils,
-        ResourceLoader resourceLoader
+        DynamicPromptService dynamicPromptService
     ) {
         this.chatClient = chatClient;
         this.jsonUtils = jsonUtils;
-        String fullTemplate = loadPrompt(resourceLoader);
+        String fullTemplate = dynamicPromptService.getTemplateContent("analyst");
         PromptParts parts = PromptSplitUtils.split(fullTemplate);
         this.systemPrompt = parts.system();
         this.userPromptTemplate = parts.user();
@@ -134,23 +132,4 @@ public class AnalystAgent {
         return sb.toString();
     }
 
-    private String loadPrompt(ResourceLoader loader) {
-        try {
-            Resource resource = loader.getResource("classpath:prompts/analyst.st");
-            return resource.getContentAsString(StandardCharsets.UTF_8);
-        } catch (Exception e) {
-            log.error("[Analyst] 无法加载 prompt 模板", e);
-            return """
-                你是研究分析师。基于以下证据和子问题，形成研究结论并评估证据完备性。
-
-                研究问题: {{query}}
-                子问题:
-                {{subQuestions}}
-                证据池:
-                {{evidencePool}}
-
-                返回 JSON: {"findings": [{"findingId":"F0","subQuestionId":"Q0","conclusion":"...","reasoning":"...","supportingEvidenceIds":["WEB01_1"],"confidence":0.85}], "needsMoreResearch": false, "missingGaps": [], "completenessScore": 0.8}
-                """;
-        }
-    }
 }

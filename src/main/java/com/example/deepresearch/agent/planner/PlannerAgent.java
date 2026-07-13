@@ -7,15 +7,13 @@ import com.example.deepresearch.common.util.JsonParseUtils;
 import com.example.deepresearch.common.util.PromptSplitUtils;
 import com.example.deepresearch.common.util.PromptSplitUtils.PromptParts;
 import com.example.deepresearch.security.PiiMaskingService;
+import com.example.deepresearch.service.DynamicPromptService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.core.io.Resource;
-import org.springframework.core.io.ResourceLoader;
 import org.springframework.stereotype.Service;
 
-import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 /**
@@ -58,7 +56,7 @@ public class PlannerAgent {
         @Qualifier("plannerFallbackClient") ChatClient fallbackClient,
         ModelFallbackService fallbackService,
         JsonParseUtils jsonUtils,
-        ResourceLoader resourceLoader,
+        DynamicPromptService dynamicPromptService,
         PiiMaskingService piiMaskingService
     ) {
         this.chatClient = chatClient;
@@ -66,7 +64,7 @@ public class PlannerAgent {
         this.fallbackService = fallbackService;
         this.jsonUtils = jsonUtils;
         this.piiMaskingService = piiMaskingService;
-        String fullTemplate = loadPrompt(resourceLoader);
+        String fullTemplate = dynamicPromptService.getTemplateContent("planner");
         PromptParts parts = PromptSplitUtils.split(fullTemplate);
         this.systemPrompt = parts.system();
         this.userPromptTemplate = parts.user();
@@ -117,20 +115,4 @@ public class PlannerAgent {
         }
     }
 
-    private String loadPrompt(ResourceLoader loader) {
-        try {
-            Resource resource = loader.getResource("classpath:prompts/planner.st");
-            return resource.getContentAsString(StandardCharsets.UTF_8);
-        } catch (Exception e) {
-            log.error("[Planner] 无法加载 prompt 模板", e);
-            return """
-                你是研究规划专家。请将以下查询拆解为子问题并生成搜索计划。
-
-                查询: {{query}}
-                用户上下文: {{memoryContext}}
-
-                返回 JSON: {"subQuestions": [...], "reportOutline": "...", "searchPlans": [{"queryId":"Q0","query":"...","rationale":"...","priority":1}]}
-                """;
-        }
-    }
 }
