@@ -89,7 +89,7 @@ public class LocalScoutAgent {
                     .replace("{{query}}", query)
                     .replace("{{searchPlanQueries}}", queriesContext)
                     .replace("{{tenantId}}", tenantId))
-                .tools(searchTools)  // 注入 @Tool 工具
+                //.tools(searchTools)  // searchTools 已在 AgentBundle 中通过 defaultTools 注册，这里无需注入
                 .call()
                 .entity(EvidenceListWrapper.class);  // Round 1 已替换 safeParse
 
