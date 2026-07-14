@@ -125,9 +125,9 @@ public class LongTermMemoryService {
      * 获取用户的历史研究主题.
      */
     @Transactional(readOnly = true)
-    public List<String> getRecentTopics(String userId, int limit) {
+    public List<String> getRecentTopics(String userId, String tenantId, int limit) {
         Optional<UserProfile> profileOpt = userProfileRepo
-            .findByUserIdAndTenantId(userId, "default");
+            .findByUserIdAndTenantId(userId, tenantId);
         return profileOpt
             .map(p -> {
                 List<String> topics = parseJsonArray(p.getRecentTopics());
@@ -140,9 +140,9 @@ public class LongTermMemoryService {
      * 获取用户偏好设置.
      */
     @Transactional(readOnly = true)
-    public Map<String, Object> getUserPreferences(String userId) {
+    public Map<String, Object> getUserPreferences(String userId, String tenantId) {
         Optional<UserProfile> profileOpt = userProfileRepo
-            .findByUserIdAndTenantId(userId, "default");
+            .findByUserIdAndTenantId(userId, tenantId);
         return profileOpt
             .map(p -> parseJsonMap(p.getPreferences()))
             .orElse(Collections.emptyMap());

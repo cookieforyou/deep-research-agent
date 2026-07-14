@@ -1,57 +1,58 @@
 'use client';
 
 import Link from 'next/link';
+import { useQuery } from '@tanstack/react-query';
 import { Card, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { History, ExternalLink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { historyApi } from '@/lib/api';
+import { useAuthStore } from '@/stores/auth-store';
+import type { ResearchHistoryItem } from '@/lib/types';
+import dayjs from 'dayjs';
+import relativeTime from 'dayjs/plugin/relativeTime';
+import 'dayjs/locale/zh-cn';
+
+dayjs.extend(relativeTime);
+dayjs.locale('zh-cn');
 
 /**
- * 模拟最近研究历史（Phase 2 mock 数据，Phase 5 接入后端 API）
+ * 最近研究历史预览（首页底部）
  *
- * 显示首页底部最近 3 条研究记录。
- * Phase 5 替换为 useHistoryList Hook 的真实数据。
+ * 显示最近 3 条研究记录，使用真实后端 API。
  */
-
-interface MockHistoryItem {
-  id: string;
-  query: string;
-  status: 'COMPLETED' | 'ERROR';
-  wordCount: number;
-  citationCount: number;
-  createdAt: string;
-}
-
-// Phase 2 mock 数据 — Phase 5 删除，替换为 API 调用
-const MOCK_HISTORY: MockHistoryItem[] = [
-  {
-    id: 'mock-001',
-    query: '2026年中国新能源汽车市场趋势与竞争格局分析',
-    status: 'COMPLETED',
-    wordCount: 4521,
-    citationCount: 38,
-    createdAt: '2 小时前',
-  },
-  {
-    id: 'mock-002',
-    query: '全球AI芯片产业链格局及国产替代进展',
-    status: 'COMPLETED',
-    wordCount: 3128,
-    citationCount: 25,
-    createdAt: '5 小时前',
-  },
-  {
-    id: 'mock-003',
-    query: '光伏产业N型电池技术路线对比',
-    status: 'ERROR',
-    wordCount: 0,
-    citationCount: 0,
-    createdAt: '昨天',
-  },
-];
-
 export function RecentHistoryPreview() {
+  const { userId, tenantId } = useAuthStore();
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['history', userId, tenantId, 'recent'],
+    queryFn: () =>
+      historyApi.list({ userId, tenantId, page: 0, size: 3, sortBy: 'createdAt', sortDir: 'desc' }),
+    staleTime: 30_000,
+    retry: 0,
+  });
+
+  const items: ResearchHistoryItem[] = data?.content || [];
+
+  if (isLoading) {
+    return <RecentHistorySkeleton />;
+  }
+
+  if (items.length === 0) {
+    return (
+      <div className="space-y-3">
+        <div className="flex items-center gap-2">
+          <History className="h-4 w-4 text-muted-foreground" />
+          <h3 className="text-sm font-medium">最近研究</h3>
+        </div>
+        <p className="text-xs text-muted-foreground text-center py-4">
+          暂无研究记录，去首页开始第一次深度研究
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
@@ -68,8 +69,8 @@ export function RecentHistoryPreview() {
       </div>
 
       <div className="grid gap-2">
-        {MOCK_HISTORY.map((item) => (
-          <Link key={item.id} href={`/research/${item.id}`}>
+        {items.map((item) => (
+          <Link key={item.id} href={`/research/${item.sessionId}`}>
             <Card className="hover:bg-accent/50 transition-colors cursor-pointer">
               <CardHeader className="py-3 px-4">
                 <div className="flex items-center justify-between gap-2">
@@ -82,7 +83,7 @@ export function RecentHistoryPreview() {
                         ? `${item.wordCount.toLocaleString()} 字 · ${item.citationCount} 引用`
                         : '研究失败'}
                       {' · '}
-                      {item.createdAt}
+                      {dayjs(item.createdAt).fromNow()}
                     </CardDescription>
                   </div>
                   <Badge
@@ -97,16 +98,10 @@ export function RecentHistoryPreview() {
           </Link>
         ))}
       </div>
-
-      {/* Phase 5 提示 */}
-      <p className="text-xs text-muted-foreground text-center">
-        Phase 5 将替换为后端历史 API 真实数据
-      </p>
     </div>
   );
 }
 
-/** Loading 骨架 — 历史数据加载中 */
 export function RecentHistorySkeleton() {
   return (
     <div className="space-y-3">

@@ -4,6 +4,7 @@ import com.example.deepresearch.api.dto.UpdatePromptRequest;
 import com.example.deepresearch.memory.entity.PromptTemplateEntity;
 import com.example.deepresearch.memory.repository.PromptTemplateRepository;
 import com.example.deepresearch.service.DynamicPromptService;
+import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -17,16 +18,11 @@ import java.util.Optional;
 
 /**
  * Prompt 模板管理 API 控制器（管理员专用）。
- *
- * 端点:
- *   GET    /api/admin/prompts
- *   GET    /api/admin/prompts/{id}
- *   PUT    /api/admin/prompts/{id}
- *   POST   /api/admin/prompts/{id}/reset
- *   POST   /api/admin/prompts/{id}/cache/invalidate
+ * 所有端点需要 ROLE_ADMIN 权限。
  */
 @RestController
 @RequestMapping("/api/admin/prompts")
+@PreAuthorize("hasRole('ADMIN')")
 public class PromptAdminController {
 
     private static final Logger log = LoggerFactory.getLogger(PromptAdminController.class);
@@ -76,7 +72,7 @@ public class PromptAdminController {
     @PutMapping("/{id}")
     public ResponseEntity<?> update(
         @PathVariable String id,
-        @RequestBody UpdatePromptRequest request
+        @Valid @RequestBody UpdatePromptRequest request
     ) {
         log.info("[Admin] 更新模板: id={}, status={}, abGroup={}", id, request.status(), request.abGroup());
 

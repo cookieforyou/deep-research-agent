@@ -86,17 +86,24 @@ export const historyApi = {
     return request<PaginatedResponse<ResearchHistoryItem>>(`/history?${searchParams}`);
   },
 
-  /** GET /api/history/{sessionId} — 获取历史详情（含完整报告） */
-  getDetail(sessionId: string) {
-    return request<ResearchHistoryItem>(`/history/${sessionId}`);
+  /** GET /api/history/{sessionId} — 获取历史详情（含完整报告，验证所有权） */
+  getDetail(sessionId: string, userId?: string, tenantId?: string) {
+    const params = new URLSearchParams();
+    if (userId) params.set('userId', userId);
+    if (tenantId) params.set('tenantId', tenantId);
+    const qs = params.toString();
+    return request<ResearchHistoryItem>(`/history/${sessionId}${qs ? '?' + qs : ''}`);
   },
 
-  /** DELETE /api/history/{sessionId} — 删除研究记录 */
-  delete(sessionId: string) {
-    return request<void>(`/history/${sessionId}`, { method: 'DELETE' });
+  /** DELETE /api/history/{sessionId} — 删除研究记录（需所有权验证） */
+  delete(sessionId: string, userId: string, tenantId: string) {
+    const params = new URLSearchParams();
+    params.set('userId', userId);
+    params.set('tenantId', tenantId);
+    return request<void>(`/history/${sessionId}?${params}`, { method: 'DELETE' });
   },
 
-  /** POST /api/history/{sessionId}/re-run — 重新执行相同查询 */
+  /** POST /api/history/{sessionId}/re-run — 重新执行相同查询（预留） */
   reRun(sessionId: string) {
     return request<ResearchResponse>(`/history/${sessionId}/re-run`, {
       method: 'POST',

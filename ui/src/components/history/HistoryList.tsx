@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useHistoryList } from '@/hooks/useHistoryList';
 import { HistorySearch } from './HistorySearch';
@@ -31,20 +31,25 @@ export function HistoryList() {
   const { data, isLoading, isError, fetchNextPage, hasNextPage, isFetchingNextPage, refetch } =
     useHistoryList({ keyword, status, sortBy, sortDir: 'desc' });
 
-  const allItems = data?.pages.flatMap((page) => page.content) || [];
+  const allItems = useMemo(
+    () => data?.pages.flatMap((page) => page.content) || [],
+    [data],
+  );
   const isEmpty = !isLoading && allItems.length === 0;
 
   const handleDelete = useCallback(
     async (sessionId: string) => {
       try {
         const { historyApi } = await import('@/lib/api');
-        await historyApi.delete(sessionId);
+        const item = allItems.find((i) => i.sessionId === sessionId);
+        if (!item) return;
+        await historyApi.delete(sessionId, item.userId, item.tenantId);
         refetch();
       } catch {
-        // 后端 API 可能未实现，静默失败
+        // 后端 API 调用失败时静默处理
       }
     },
-    [refetch],
+    [refetch, allItems],
   );
 
   const handleReRun = useCallback(

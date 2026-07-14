@@ -113,17 +113,33 @@ public class ResearchHistoryController {
     /**
      * GET /api/history/{sessionId}
      * 获取单条研究历史详情（含完整报告和评估分数）。
+     * 验证所有权：需提供 userId + tenantId 确保只能查看自己的记录。
      */
     @GetMapping("/{sessionId}")
-    public ResponseEntity<?> getDetail(@PathVariable String sessionId) {
-        log.info("[History] 获取详情: sessionId={}", sessionId);
+    public ResponseEntity<?> getDetail(
+        @PathVariable String sessionId,
+        @RequestParam(required = false) String userId,
+        @RequestParam(required = false) String tenantId
+    ) {
+        log.info("[History] 获取详情: sessionId={}, userId={}, tenantId={}", sessionId, userId, tenantId);
 
         try {
-            var history = memoryManager.getResearchBySessionId(sessionId);
-            if (history.isEmpty()) {
+            var historyOpt = memoryManager.getResearchBySessionId(sessionId);
+            if (historyOpt.isEmpty()) {
                 return ResponseEntity.notFound().build();
             }
-            return ResponseEntity.ok(history.get());
+
+            ResearchHistory history = historyOpt.get();
+
+            // 验证所有权
+            if (userId != null && !userId.isEmpty() &&
+                !userId.equals(history.getUserId())) {
+                log.warn("[History] 无权访问: sessionId={}, requestUser={}, owner={}",
+                    sessionId, userId, history.getUserId());
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+            }
+
+            return ResponseEntity.ok(history);
         } catch (Exception e) {
             log.error("[History] 获取详情失败: {}", e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
@@ -133,12 +149,31 @@ public class ResearchHistoryController {
 
     /**
      * DELETE /api/history/{sessionId}
-     * 删除研究记录。
+     * 删除研究记录。需提供 userId + tenantId 验证所有权。
      */
     @DeleteMapping("/{sessionId}")
-    public ResponseEntity<Void> delete(@PathVariable String sessionId) {
-        log.info("[History] 删除记录: sessionId={}", sessionId);
+    public ResponseEntity<Void> delete(
+        @PathVariable String sessionId,
+        @RequestParam String userId,
+        @RequestParam String tenantId
+    ) {
+        log.info("[History] 删除记录: sessionId={}, userId={}, tenantId={}", sessionId, userId, tenantId);
         try {
+            var historyOpt = memoryManager.getResearchBySessionId(sessionId);
+            if (historyOpt.isEmpty()) {
+                return ResponseEntity.notFound().build();
+            }
+
+            ResearchHistory history = historyOpt.get();
+
+            // 验证所有权：只能删除自己的记录
+            if (!userId.equals(history.getUserId()) ||
+                !tenantId.equals(history.getTenantId())) {
+                log.warn("[History] 无权删除: sessionId={}, requestUser={}/{}, owner={}/{}",
+                    sessionId, userId, tenantId, history.getUserId(), history.getTenantId());
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+            }
+
             memoryManager.deleteResearchHistory(sessionId);
             return ResponseEntity.noContent().build();
         } catch (Exception e) {
