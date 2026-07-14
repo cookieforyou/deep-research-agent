@@ -1,18 +1,20 @@
 'use client';
 
 import { use } from 'react';
+import { useRouter } from 'next/navigation';
 import { useResearchSse } from '@/hooks/useResearchSse';
 import { SseStatusBadge } from '@/components/research/SseStatusBadge';
+import { WorkflowTimeline } from '@/components/research/WorkflowTimeline';
+import { CacheHitBanner } from '@/components/research/CacheHitBanner';
+import { ResearchErrorView } from '@/components/research/ResearchErrorView';
 import { Sidebar, SidebarToggle } from '@/components/layout/Sidebar';
-import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 
 /**
  * 研究详情页
  *
- * Phase 2: 骨架布局 + SSE 连接状态指示 + 事件调试信息
- * Phase 3: WorkflowTimeline 替换占位区域
- * Phase 4: ReportViewer 在完成后显示
+ * Phase 3: SSE 实时进度 + WorkflowTimeline 7 阶段可视化
+ * Phase 4: ReportViewer 在完成后显示（替换完成占位）
  * Phase 5: Eval 分数 + Sidebar 上下文填充
  */
 export default function ResearchDetailPage({
@@ -21,12 +23,18 @@ export default function ResearchDetailPage({
   params: Promise<{ sessionId: string }>;
 }) {
   const { sessionId } = use(params);
+  const router = useRouter();
   const { events, status, connect, isCompleted, hasError, isCacheHit } =
     useResearchSse(sessionId);
 
+  // 重新研究：返回首页（可带已有查询）
+  const handleRetry = () => {
+    router.push('/');
+  };
+
   return (
     <div className="flex h-[calc(100vh-4rem)]">
-      {/* Sidebar — 研究上下文（Phase 5 填充实际研究信息） */}
+      {/* Sidebar — 研究上下文（Phase 4-5 填充实际研究信息） */}
       <Sidebar title="研究上下文" className="hidden lg:flex">
         <div className="p-4 space-y-4">
           <div>
@@ -38,6 +46,9 @@ export default function ResearchDetailPage({
           <div>
             <h4 className="text-xs font-medium text-sidebar-foreground mb-1">连接状态</h4>
             <SseStatusBadge status={status} onReconnect={connect} />
+          </div>
+          <div className="text-xs text-muted-foreground">
+            已接收 {events.length} 个进度事件
           </div>
           <Separator />
           <div className="text-xs text-muted-foreground space-y-1">
@@ -53,98 +64,58 @@ export default function ResearchDetailPage({
       {/* Main — 进度 + 报告 */}
       <main className="flex-1 overflow-y-auto">
         {/* 顶部状态栏 */}
-        <div className="flex items-center justify-between px-6 py-3 border-b">
-          <h2 className="text-sm font-semibold">研究详情</h2>
-          <div className="flex items-center gap-2">
-            {isCacheHit && (
-              <Badge className="text-xs bg-green-500 hover:bg-green-500 text-white">
-                缓存命中
-              </Badge>
-            )}
-            <SseStatusBadge status={status} onReconnect={connect} />
-          </div>
+        <div className="flex items-center justify-between px-6 py-3 border-b bg-background/50 backdrop-blur-sm sticky top-0 z-10">
+          <h2 className="text-sm font-semibold">研究进度</h2>
+          <SseStatusBadge status={status} onReconnect={connect} />
         </div>
 
-        <div className="p-6">
-          {/* Session 信息 */}
-          <div className="mb-6 flex items-center gap-3 text-xs text-muted-foreground bg-muted/50 rounded-md px-3 py-2">
-            <span className="font-mono">{sessionId}</span>
-            <span>·</span>
-            <span>进度事件: {events.length}</span>
-            {events.length > 0 && (
-              <>
-                <span>·</span>
-                <span>
-                  最新: {events[events.length - 1]?.stage.toUpperCase()}
-                </span>
-              </>
-            )}
-          </div>
+        <div className="max-w-2xl mx-auto p-6 space-y-6">
+          {/* 缓存命中 — 替代整个 Timeline */}
+          {isCacheHit && (
+            <CacheHitBanner
+              message={events.find((e) => e.stage === 'CACHE_HIT')?.message}
+            />
+          )}
 
-          {/* Phase 3: WorkflowTimeline 占位 */}
-          <div className="rounded-lg border bg-card mb-6">
-            <div className="p-6 text-center text-muted-foreground">
-              <p className="text-2xl mb-2">🔄</p>
-              <p className="text-sm font-medium">工作流进度 Timeline</p>
-              <p className="text-xs mt-1">Phase 3 实现 7 阶段可视化</p>
-              {events.length > 0 && (
-                <div className="mt-4 space-y-1 text-xs">
-                  <p className="font-medium mb-2">调试信息 — 最近 5 个事件:</p>
-                  <div className="space-y-1 text-left max-w-md mx-auto font-mono">
-                    {events.slice(-5).map((e, i) => (
-                      <div
-                        key={i}
-                        className="text-muted-foreground bg-muted/50 rounded px-2 py-1"
-                      >
-                        <span className="text-primary">{e.stage}</span>
-                        {' · '}
-                        {e.nodeName}
-                        {' · '}
-                        {e.percent.toFixed(0)}%
-                        <div className="text-[10px] opacity-60 truncate">
-                          {e.message}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* 错误状态 */}
-          {hasError && (
-            <div className="rounded-lg border border-destructive/50 bg-destructive/5 p-6 text-center mb-6">
-              <p className="text-lg mb-1">!</p>
-              <p className="text-sm font-medium text-destructive">研究过程中发生错误</p>
-              <p className="text-xs text-muted-foreground mt-1">
-                请检查后端日志了解详情。您可以从首页重新发起研究。
-              </p>
+          {/* 工作流 Timeline — 核心可视化 */}
+          {!isCacheHit && (
+            <div className="rounded-lg border bg-card p-4">
+              <WorkflowTimeline events={events} />
             </div>
           )}
 
-          {/* 完成状态 */}
+          {/* 研究完成 — 报告渲染将在 Phase 4 实现 */}
           {isCompleted && (
             <div className="rounded-lg border border-green-200 bg-green-50 dark:bg-green-950/20 p-6 text-center">
-              <p className="text-lg mb-1">✅</p>
+              <p className="text-2xl mb-2">✅</p>
               <p className="text-sm font-medium text-green-700 dark:text-green-400">
                 研究完成 — 报告渲染将在 Phase 4 实现
               </p>
               <p className="text-xs text-muted-foreground mt-1">
-                {events.length} 个进度事件 · SSE 连接已关闭
+                {events.length} 个进度事件已接收 · SSE 连接已关闭
               </p>
             </div>
           )}
 
-          {/* 连接中 + 无事件（等待任务启动） */}
-          {!isCompleted && !hasError && events.length === 0 && (
-            <div className="flex items-center justify-center py-20">
-              <div className="text-center space-y-3">
-                <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent mx-auto" />
-                <p className="text-muted-foreground">正在连接研究进度流...</p>
-                <p className="text-xs text-muted-foreground">
-                  SSE 连接建立后将实时推送工作流进度
-                </p>
+          {/* 研究失败 */}
+          {hasError && (
+            <ResearchErrorView
+              message={events.find((e) => e.stage === 'ERROR')?.message}
+              onRetry={handleRetry}
+            />
+          )}
+
+          {/* 初始等待状态 */}
+          {!isCompleted && !hasError && !isCacheHit && events.length === 0 && (
+            <div className="flex items-center justify-center py-24">
+              <div className="text-center space-y-4">
+                <div className="h-10 w-10 animate-spin rounded-full border-4 border-primary border-t-transparent mx-auto" />
+                <div>
+                  <p className="text-muted-foreground">正在等待研究任务启动...</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    后端 AI Agent 准备就绪后将推送实时进度
+                  </p>
+                </div>
               </div>
             </div>
           )}
