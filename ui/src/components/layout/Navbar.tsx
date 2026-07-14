@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { useTheme } from 'next-themes';
 import { useEffect, useState } from 'react';
 import { Sun, Moon, Menu, History, Settings, LogOut, User } from 'lucide-react';
@@ -29,6 +29,12 @@ export function Navbar() {
   const [mounted, setMounted] = useState(false);
   const { userId, isAdmin, isAuthenticated, logout } = useAuthStore();
   const toggleSidebar = useUiStore((s) => s.toggleSidebar);
+  const router = useRouter();
+
+  const handleLogout = () => {
+    logout();
+    router.push('/login');
+  };
 
   // 防止 hydration mismatch
   useEffect(() => setMounted(true), []);
@@ -135,7 +141,7 @@ export function Navbar() {
                   </Link>
                 )}
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={logout}>
+                <DropdownMenuItem onClick={handleLogout}>
                   <LogOut className="h-4 w-4 mr-2" />
                   退出登录
                 </DropdownMenuItem>
