@@ -1,6 +1,9 @@
 import type { Metadata } from 'next';
 import { ThemeProvider } from 'next-themes';
 import { Toaster } from 'sonner';
+import { AppProviders } from '@/providers/app-providers';
+import { Navbar } from '@/components/layout/Navbar';
+import { Footer } from '@/components/layout/Footer';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -13,8 +16,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="zh-CN" suppressHydrationWarning>
       <body className="min-h-screen bg-background font-sans antialiased">
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
-          {children}
-          <Toaster richColors position="top-right" />
+          <AppProviders>
+            <div className="flex min-h-screen flex-col">
+              <Navbar />
+              <main className="flex-1">{children}</main>
+              <Footer />
+            </div>
+            <Toaster richColors position="top-right" />
+          </AppProviders>
         </ThemeProvider>
       </body>
     </html>

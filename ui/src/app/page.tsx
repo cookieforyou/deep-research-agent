@@ -1,31 +1,75 @@
+import { ResearchInput } from '@/components/research/ResearchInput';
+import { ExampleQueries } from '@/components/research/ExampleQueries';
+import { Card, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Separator } from '@/components/ui/separator';
+
 export default function Home() {
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center p-8">
-      <div className="flex flex-col items-center gap-8 max-w-2xl text-center">
-        {/* Logo */}
-        <div className="flex items-center gap-3">
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary text-primary-foreground text-lg font-bold">
-            DR
+    <div className="flex flex-col items-center px-4 py-12 md:py-20">
+      <div className="w-full max-w-2xl space-y-8">
+        {/* Hero Section */}
+        <div className="text-center space-y-3">
+          <h1 className="text-4xl font-bold tracking-tight">DeepResearch 深度研究</h1>
+          <p className="text-lg text-muted-foreground">
+            企业级 AI 多智能体深度研究系统 — 基于 7 个 AI Agent 协同，实时生成引用溯源的深度研报
+          </p>
+          <div className="flex justify-center gap-3 flex-wrap">
+            {[
+              '7 Agent 协同',
+              '双源并行检索',
+              'SSE 实时进度',
+              '5维质量评估',
+              'Markdown 研报',
+            ].map((tag) => (
+              <span
+                key={tag}
+                className="inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium text-muted-foreground"
+              >
+                {tag}
+              </span>
+            ))}
           </div>
-          <h1 className="text-3xl font-bold tracking-tight">DeepResearch</h1>
         </div>
 
-        <p className="text-lg text-muted-foreground">
-          企业级 AI 多智能体深度研究系统 —— Phase 0 脚手架就绪
-        </p>
+        {/* Research Input */}
+        <ResearchInput />
 
-        <div className="flex gap-3">
-          <div className="rounded-lg border bg-card px-4 py-2 text-sm text-muted-foreground">
-            Next.js 15 + TypeScript
-          </div>
-          <div className="rounded-lg border bg-card px-4 py-2 text-sm text-muted-foreground">
-            Tailwind CSS v4
-          </div>
-          <div className="rounded-lg border bg-card px-4 py-2 text-sm text-muted-foreground">
-            shadcn/ui
-          </div>
+        {/* Example Queries */}
+        <div>
+          <p className="text-sm text-muted-foreground mb-3 text-center">💡 试试这些研究方向</p>
+          <ExampleQueries />
+        </div>
+
+        <Separator />
+
+        {/* Feature Overview */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">实时进度</CardTitle>
+              <CardDescription className="text-xs">
+                通过 SSE 实时推送工作流 7 阶段进度，可视化展示每个 AI Agent 的执行状态
+              </CardDescription>
+            </CardHeader>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">深度研报</CardTitle>
+              <CardDescription className="text-xs">
+                Markdown 格式输出，支持表格/代码块/引用溯源，点击引用即可查看证据来源
+              </CardDescription>
+            </CardHeader>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">质量评估</CardTitle>
+              <CardDescription className="text-xs">
+                异步 5 维 LLM 评估（相关性/连贯性/引用准确性/完备性/简洁性），雷达图可视化
+              </CardDescription>
+            </CardHeader>
+          </Card>
         </div>
       </div>
-    </main>
+    </div>
   );
 }
