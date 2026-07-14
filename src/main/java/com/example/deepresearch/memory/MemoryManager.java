@@ -174,11 +174,7 @@ public class MemoryManager {
 
     /**
      * 获取用户全部研究历史记录（代理到 LongTermMemoryService）.
-     * 供历史 API 列表查询使用。
-     */
-    /**
-     * 获取用户全部研究历史记录（代理到 LongTermMemoryService）.
-     * 供历史 API 列表查询使用。limit=1000 防止内存溢出。
+     * 供历史 API 列表查询使用，limit=1000 防止内存溢出。
      */
     public List<ResearchHistory> getResearchHistory(String userId, String tenantId) {
         return longTermMemory.getRecentHistory(userId, tenantId, 1000);

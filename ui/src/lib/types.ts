@@ -151,13 +151,18 @@ export interface ResearchHistoryItem {
 }
 
 /** 分页响应 */
+/** Spring Data Page 序列化格式（PageJacksonModule 自动注册） */
 export interface PaginatedResponse<T> {
   content: T[];
-  page: number;
+  /** Spring Data 使用 "number" 字段名（非 "page"） */
+  number: number;
   size: number;
   totalElements: number;
   totalPages: number;
-  hasNext: boolean;
+  /** Spring Data 使用 "last" 字段（true = 最后一页） */
+  last: boolean;
+  first: boolean;
+  empty: boolean;
 }
 
 // =========================== RFC 7807 错误 ===========================

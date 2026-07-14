@@ -70,8 +70,8 @@ public class ResearchOrchestratorService {
     /** 活跃会话状态缓存（sessionId → 最新 ResearchState） */
     private final ConcurrentHashMap<String, ResearchState> activeSessions = new ConcurrentHashMap<>();
 
-    /** 评估分数滑动窗口（用于告警检查） */
-    private final Deque<Double> recentEvalScores = new ArrayDeque<>();
+    /** 评估分数滑动窗口（按租户隔离，避免多租户评分混合导致误报） */
+    private final ConcurrentHashMap<String, Deque<Double>> tenantEvalWindows = new ConcurrentHashMap<>();
 
     public ResearchOrchestratorService(
         ResearchWorkflow researchWorkflow,
@@ -402,8 +402,8 @@ public class ResearchOrchestratorService {
                     String evalJson = objectMapper.writeValueAsString(evalResult);
                     memoryManager.updateEvalScores(sessionId, evalJson);
 
-                    // 滑动窗口告警检查
-                    checkEvalAlert(evalResult);
+                    // 滑动窗口告警检查（按租户隔离）
+                    checkEvalAlert(evalTenantId, evalResult);
 
                     log.info("[Orchestrator] LLM 评估完成: sessionId={}, overallScore={}",
                         sessionId, String.format("%.1f", evalResult.overallScore()));
@@ -419,31 +419,39 @@ public class ResearchOrchestratorService {
     }
 
     /**
-     * 滑动窗口告警检查.
+     * 滑动窗口告警检查（按租户隔离）.
      * <p>
-     * 维护最近 N 次（默认 10 次）评估分数的滑动窗口。
+     * 为每个租户维护独立的评估分数滑动窗口（默认 10 次），
+     * 避免多租户评分混合导致告警误报。
      * 当窗口满且平均分低于阈值（默认 3.0）时，触发 WARN 日志。
-     * 这表示 Prompt 模板可能需要优化。
      * </p>
+     *
+     * @param tenantId 租户 ID（用于隔离评分窗口）
+     * @param result   评估结果
      */
-    private void checkEvalAlert(EvalResult result) {
+    private void checkEvalAlert(String tenantId, EvalResult result) {
         int windowSize = properties.eval().alertWindowSize();
         double threshold = properties.eval().alertThreshold();
 
-        recentEvalScores.addLast(result.overallScore());
-        while (recentEvalScores.size() > windowSize) {
-            recentEvalScores.removeFirst();
-        }
+        Deque<Double> scores = tenantEvalWindows.computeIfAbsent(
+            tenantId, k -> new ArrayDeque<>());
 
-        if (recentEvalScores.size() >= windowSize) {
-            double avg = recentEvalScores.stream()
-                .mapToDouble(Double::doubleValue)
-                .average()
-                .orElse(0);
-            if (avg < threshold) {
-                log.warn("[Orchestrator] ⚠️ 评估告警: 最近 {} 次评估平均分={}，低于阈值 {}，" +
-                    "建议检查 Prompt 模板质量",
-                    windowSize, String.format("%.2f", avg), threshold);
+        synchronized (scores) {
+            scores.addLast(result.overallScore());
+            while (scores.size() > windowSize) {
+                scores.removeFirst();
+            }
+
+            if (scores.size() >= windowSize) {
+                double avg = scores.stream()
+                    .mapToDouble(Double::doubleValue)
+                    .average()
+                    .orElse(0);
+                if (avg < threshold) {
+                    log.warn("[Orchestrator] ⚠️ 评估告警 [tenant={}]: 最近 {} 次评估平均分={}，" +
+                        "低于阈值 {}，建议检查 Prompt 模板质量",
+                        tenantId, windowSize, String.format("%.2f", avg), threshold);
+                }
             }
         }
     }

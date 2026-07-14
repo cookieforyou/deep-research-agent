@@ -32,7 +32,7 @@ export function useHistoryList(filters: HistoryFilters = {}) {
         size: 20,
         ...filters,
       }),
-    getNextPageParam: (lastPage) => (lastPage.hasNext ? lastPage.page + 1 : undefined),
+    getNextPageParam: (lastPage) => (!lastPage.last ? lastPage.number + 1 : undefined),
     initialPageParam: 0,
     staleTime: 30_000,
     refetchOnWindowFocus: false,

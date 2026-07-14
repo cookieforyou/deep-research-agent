@@ -1,5 +1,6 @@
 package com.example.deepresearch.api.controller;
 
+import com.example.deepresearch.api.dto.ResearchHistorySummary;
 import com.example.deepresearch.memory.MemoryManager;
 import com.example.deepresearch.memory.entity.ResearchHistory;
 import org.slf4j.Logger;
@@ -40,10 +41,10 @@ public class ResearchHistoryController {
     /**
      * GET /api/history
      * 分页查询研究历史，支持搜索、筛选和排序。
-     * 列表查询不返回报告全文（report 字段置空）。
+     * 返回 ResearchHistorySummary（不含报告全文），节省带宽。
      */
     @GetMapping
-    public ResponseEntity<Page<ResearchHistory>> listHistory(
+    public ResponseEntity<Page<ResearchHistorySummary>> listHistory(
         @RequestParam String userId,
         @RequestParam String tenantId,
         @RequestParam(defaultValue = "0") int page,
@@ -61,7 +62,6 @@ public class ResearchHistoryController {
                 ? Sort.Direction.ASC : Sort.Direction.DESC;
             PageRequest pageable = PageRequest.of(page, size, Sort.by(direction, sortBy));
 
-            // 使用 LongTermMemoryService 的分页查询（需要扩展）
             List<ResearchHistory> allRecords = memoryManager.getResearchHistory(userId, tenantId);
 
             // 应用筛选
@@ -77,7 +77,7 @@ public class ResearchHistoryController {
                     .collect(Collectors.toList());
             }
 
-            // 排序（内存排序）
+            // 排序
             Comparator<ResearchHistory> comparator = switch (sortBy) {
                 case "wordCount" -> Comparator.comparingInt(ResearchHistory::getWordCount);
                 case "citationCount" -> Comparator.comparingInt(ResearchHistory::getCitationCount);
@@ -94,18 +94,19 @@ public class ResearchHistoryController {
             int end = Math.min(start + size, totalElements);
             List<ResearchHistory> pageContent = allRecords.subList(start, end);
 
-            // 列表查询清除 report 字段（节省带宽）
-            pageContent.forEach(h -> h.setReport(null));
+            // 转换为 DTO，排除 report 字段（避免传输大文本 + 不修改 managed entity）
+            List<ResearchHistorySummary> summaries = pageContent.stream()
+                .map(ResearchHistorySummary::from)
+                .collect(Collectors.toList());
 
-            Page<ResearchHistory> result = new PageImpl<>(
-                pageContent, pageable, totalElements
+            Page<ResearchHistorySummary> result = new PageImpl<>(
+                summaries, pageable, totalElements
             );
 
             return ResponseEntity.ok(result);
 
         } catch (Exception e) {
             log.error("[History] 查询失败: {}", e.getMessage(), e);
-            // 返回空结果而非 500，优雅降级
             return ResponseEntity.ok(Page.empty());
         }
     }

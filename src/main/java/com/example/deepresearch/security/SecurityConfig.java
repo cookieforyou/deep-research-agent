@@ -4,6 +4,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
+import org.springframework.security.config.annotation.method.configuration.EnableReactiveMethodSecurity;
 import org.springframework.security.config.annotation.web.reactive.EnableWebFluxSecurity;
 import org.springframework.security.config.web.server.ServerHttpSecurity;
 import org.springframework.security.oauth2.jwt.ReactiveJwtDecoder;
@@ -12,24 +13,16 @@ import org.springframework.security.web.server.SecurityWebFilterChain;
 import org.springframework.security.web.server.context.NoOpServerSecurityContextRepository;
 
 /**
- * Spring Security 配置 — JWT + OAuth2 无状态认证.
+ * Spring Security 配置 — JWT + OAuth2 无状态认证 + 方法级权限.
  * <p>
  * 采用 WebFlux 响应式安全配置（非 Servlet），
  * 使用 JWT Bearer Token 进行无状态认证，
- * 支持 OAuth2 Resource Server 外部签发。
+ * 支持 {@code @PreAuthorize("hasRole('ADMIN')")} 方法级权限控制。
  * </p>
- *
- * <h3>安全策略</h3>
- * <ul>
- *   <li>API 端点需要认证（除 health check）</li>
- *   <li>JWT Token 中提取 userId 和 tenantId</li>
- *   <li>WebFlux 的 ReactiveSecurityContextHolder 传递认证信息</li>
- *   <li>禁用 Session（无状态）</li>
- *   <li>禁用 CSRF（API 服务无浏览器表单）</li>
- * </ul>
  */
 @Configuration
 @EnableWebFluxSecurity
+@EnableReactiveMethodSecurity
 public class SecurityConfig {
 
     @Value("${spring.security.oauth2.resourceserver.jwt.issuer-uri}")
