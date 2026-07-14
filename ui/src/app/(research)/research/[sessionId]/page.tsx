@@ -4,6 +4,7 @@ import { use } from 'react';
 import { useRouter } from 'next/navigation';
 import { useResearchSse } from '@/hooks/useResearchSse';
 import { useReportData } from '@/hooks/useReportData';
+import { useEvalData } from '@/hooks/useEvalData';
 import { SseStatusBadge } from '@/components/research/SseStatusBadge';
 import { WorkflowTimeline } from '@/components/research/WorkflowTimeline';
 import { CacheHitBanner } from '@/components/research/CacheHitBanner';
@@ -11,6 +12,8 @@ import { ResearchErrorView } from '@/components/research/ResearchErrorView';
 import { ReportViewer } from '@/components/research/ReportViewer';
 import { ReportOutline } from '@/components/research/ReportOutline';
 import { ReportSkeleton } from '@/components/research/ReportSkeleton';
+import { EvalScoreCard, EvalScoreSkeleton } from '@/components/research/EvalScoreCard';
+import { EvalRadarChart } from '@/components/research/EvalRadarChart';
 import { Sidebar, SidebarToggle } from '@/components/layout/Sidebar';
 import { Separator } from '@/components/ui/separator';
 import { CheckCircle } from 'lucide-react';
@@ -20,7 +23,7 @@ import { CheckCircle } from 'lucide-react';
  *
  * Phase 3: SSE 实时进度 + WorkflowTimeline 7 阶段可视化
  * Phase 4: ReportViewer 报告渲染 + ReportOutline 大纲导航
- * Phase 5: Eval 分数展示 + Sidebar 上下文填充 + 引用列表/关键发现
+ * Phase 5: Eval 分数展示 + 侧边栏评估
  */
 export default function ResearchDetailPage({
   params,
@@ -43,27 +46,35 @@ export default function ResearchDetailPage({
   const metadata = reportData?.metadata;
   const showReport = (isCompleted || isCacheHit) && !reportLoading && report;
 
-  // 重新研究
+  // 异步拉取评估分数（轮询，5s 间隔）
+  const evalResult = useEvalData(sessionId, isCompleted || isCacheHit);
+
   const handleRetry = () => {
     router.push('/');
   };
 
   return (
     <div className="flex h-[calc(100vh-4rem)]">
-      {/* Sidebar — 研究上下文 / 报告大纲 */}
-      <Sidebar title={showReport ? '报告大纲' : '研究上下文'} className="hidden lg:flex">
+      {/* Sidebar */}
+      <Sidebar
+        title={showReport ? '评估与分析' : '研究上下文'}
+        className="hidden lg:flex"
+      >
         <div className="p-4 space-y-4">
           {!showReport ? (
             <>
-              {/* 进行中：显示研究状态 */}
               <div>
-                <h4 className="text-xs font-medium text-sidebar-foreground mb-1">会话 ID</h4>
+                <h4 className="text-xs font-medium text-sidebar-foreground mb-1">
+                  会话 ID
+                </h4>
                 <code className="text-[10px] text-muted-foreground break-all">
                   {sessionId}
                 </code>
               </div>
               <div>
-                <h4 className="text-xs font-medium text-sidebar-foreground mb-1">连接状态</h4>
+                <h4 className="text-xs font-medium text-sidebar-foreground mb-1">
+                  连接状态
+                </h4>
                 <SseStatusBadge status={status} onReconnect={connect} />
               </div>
               <div className="text-xs text-muted-foreground">
@@ -72,22 +83,56 @@ export default function ResearchDetailPage({
               <Separator />
               <div className="text-xs text-muted-foreground space-y-1">
                 <p>📋 查询内容 — Phase 5</p>
-                <p>📊 评估分数 — Phase 5</p>
+                {metadata && (
+                  <>
+                    <p>
+                      📝 {metadata.wordCount.toLocaleString()} 字 ·{' '}
+                      {metadata.citationCount} 引用
+                    </p>
+                  </>
+                )}
               </div>
             </>
           ) : (
             <>
-              {/* 完成后：显示报告大纲 */}
+              {/* 完成后：元信息 */}
               {metadata && (
-                <div className="flex items-center gap-2 text-xs text-muted-foreground mb-2">
-                  <CheckCircle className="h-3.5 w-3.5 text-green-500" />
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <CheckCircle className="h-3.5 w-3.5 text-green-500 shrink-0" />
                   <span>{metadata.wordCount.toLocaleString()} 字</span>
                   <span>·</span>
                   <span>{metadata.citationCount} 引用</span>
                 </div>
               )}
-              <Separator className="mb-3" />
-              <ReportOutline report={report} />
+              <Separator />
+
+              {/* 评估分数 */}
+              {evalResult ? (
+                <div className="space-y-3">
+                  <EvalScoreCard evalResult={evalResult} />
+                  <EvalRadarChart evalResult={evalResult} height={200} />
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <p className="text-xs font-medium text-sidebar-foreground">
+                    评估中...
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    AI 正在异步评估报告质量（5维评分），预计 10-30 秒完成。
+                  </p>
+                  <EvalScoreSkeleton />
+                </div>
+              )}
+
+              <Separator />
+
+              {/* 大纲导航 */}
+              <div className="space-y-1">
+                <p className="text-xs font-medium text-sidebar-foreground px-1">
+                  报告大纲
+                </p>
+                <ReportOutline report={report} />
+              </div>
             </>
           )}
         </div>
@@ -97,7 +142,6 @@ export default function ResearchDetailPage({
 
       {/* Main */}
       <main className="flex-1 overflow-y-auto">
-        {/* 顶部状态栏 */}
         <div className="flex items-center justify-between px-6 py-3 border-b bg-background/50 backdrop-blur-sm sticky top-0 z-10">
           <h2 className="text-sm font-semibold">
             {showReport ? '研究报告' : '研究进度'}
@@ -106,24 +150,20 @@ export default function ResearchDetailPage({
         </div>
 
         <div className={showReport ? 'p-6' : 'max-w-2xl mx-auto p-6 space-y-6'}>
-          {/* ======== 缓存命中 ======== */}
           {isCacheHit && <CacheHitBanner />}
 
-          {/* ======== 工作流 Timeline ======== */}
           {!isCacheHit && !showReport && (
             <div className="rounded-lg border bg-card p-4">
               <WorkflowTimeline events={events} />
             </div>
           )}
 
-          {/* ======== 报告加载中 ======== */}
           {(isCompleted || isCacheHit) && reportLoading && (
             <div className="max-w-3xl">
               <ReportSkeleton />
             </div>
           )}
 
-          {/* ======== 报告加载失败 ======== */}
           {reportError && (
             <div className="rounded-lg border border-destructive/50 bg-destructive/5 p-6 text-center">
               <p className="text-sm font-medium text-destructive">报告加载失败</p>
@@ -133,10 +173,8 @@ export default function ResearchDetailPage({
             </div>
           )}
 
-          {/* ======== 报告渲染 ======== */}
           {showReport && (
             <div className="max-w-4xl">
-              {/* 完成横幅 */}
               <div className="rounded-lg border border-green-200 bg-green-50 dark:bg-green-950/20 p-4 mb-6">
                 <div className="flex items-center gap-3">
                   <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 shrink-0" />
@@ -150,13 +188,10 @@ export default function ResearchDetailPage({
                   </div>
                 </div>
               </div>
-
-              {/* ReportViewer: Tab 切换 + Markdown 渲染 + 右侧大纲 */}
               <ReportViewer report={report} metadata={metadata} />
             </div>
           )}
 
-          {/* ======== 研究失败 ======== */}
           {hasError && (
             <ResearchErrorView
               message={events.find((e) => e.stage === 'ERROR')?.message}
@@ -164,7 +199,6 @@ export default function ResearchDetailPage({
             />
           )}
 
-          {/* ======== 初始等待 ======== */}
           {!isCompleted && !hasError && !isCacheHit && events.length === 0 && (
             <div className="flex items-center justify-center py-24">
               <div className="text-center space-y-4">
