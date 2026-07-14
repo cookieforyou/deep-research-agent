@@ -1,35 +1,54 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { researchApi } from '@/lib/api';
-import type { ResearchResponse } from '@/lib/types';
+import { researchApi, historyApi } from '@/lib/api';
+import type { ResearchResponse, ResearchHistoryItem } from '@/lib/types';
 
-/**
- * 获取完整研究报告
- *
- * 在研究完成（COMPLETED 事件）后调用 GET /api/research/{sessionId}
- * 获取包含完整 report 的 ResearchResponse。
- *
- * @param sessionId 研究会话 ID
- * @param enabled 是否启用查询（仅在 isCompleted 后设为 true）
- */
-export function useReportData(sessionId: string, enabled: boolean) {
-  return useQuery<ResearchResponse>({
-    queryKey: ['report', sessionId],
-    queryFn: () => researchApi.getStatus(sessionId),
-    enabled: !!sessionId && enabled,
-    staleTime: 5 * 60 * 1000, // 报告 5 分钟内不变
-    refetchOnWindowFocus: false,
-    retry: 2,
-  });
+interface ReportData {
+  report: string;
+  metadata: ResearchResponse['metadata'];
+  sourceIndex?: string;
 }
 
 /**
- * 从 ResearchResponse 中提取报告文本
+ * 获取完整研究报告（含证据池）。
+ *
+ * 1. 从 GET /api/research/{sessionId} 获取报告文本和元数据
+ * 2. 从 GET /api/history/{sessionId} 获取 sourceIndex（证据池）
  */
-export function extractReport(response: ResearchResponse | undefined): string {
-  if (!response || !response.report) return '';
-  return response.report;
+export function useReportData(sessionId: string, enabled: boolean) {
+  // 主查询：报告文本
+  const reportQuery = useQuery<ResearchResponse>({
+    queryKey: ['report', sessionId],
+    queryFn: () => researchApi.getStatus(sessionId),
+    enabled: !!sessionId && enabled,
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
+    retry: 2,
+  });
+
+  // 补充查询：证据池（从 history API 获取）
+  const historyQuery = useQuery<ResearchHistoryItem>({
+    queryKey: ['report-sourceIndex', sessionId],
+    queryFn: () => historyApi.getDetail(sessionId),
+    enabled: !!sessionId && enabled && reportQuery.isSuccess,
+    staleTime: 5 * 60 * 1000,
+    retry: 1,
+  });
+
+  const data: ReportData | undefined = reportQuery.data
+    ? {
+        report: reportQuery.data.report || '',
+        metadata: reportQuery.data.metadata,
+        sourceIndex: historyQuery.data?.sourceIndex,
+      }
+    : undefined;
+
+  return {
+    data,
+    isLoading: reportQuery.isLoading,
+    isError: reportQuery.isError,
+  };
 }
 
 /**
@@ -48,7 +67,7 @@ export function extractHeadings(markdown: string): HeadingItem[] {
 
   while ((match = regex.exec(markdown)) !== null) {
     const level = match[1].length;
-    const text = match[2].trim().replace(/<[^>]*>/g, ''); // 移除 HTML 标签
+    const text = match[2].trim().replace(/<[^>]*>/g, '');
     const id = text
       .toLowerCase()
       .replace(/[^\w一-鿿]+/g, '-')

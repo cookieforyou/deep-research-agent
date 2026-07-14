@@ -9,6 +9,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -135,10 +136,10 @@ public class LongTermMemoryService {
                                            String tenantId, String query,
                                            String report, int wordCount,
                                            int citationCount, int iterationCount,
-                                           String status) {
+                                           String status, String sourceIndex) {
         ResearchHistory history = new ResearchHistory(
             sessionId, userId, tenantId, query, report,
-            wordCount, citationCount, iterationCount, status);
+            wordCount, citationCount, iterationCount, status, sourceIndex);
 
         ResearchHistory saved = historyRepo.save(history);
         log.info("[LongMem] 研究历史已记录: sessionId={}, words={}, status={}",
@@ -147,13 +148,13 @@ public class LongTermMemoryService {
     }
 
     /**
-     * 获取用户最近的研究记录.
+     * 获取用户最近的研究记录（分页）.
      */
     @Transactional(readOnly = true)
-    public List<ResearchHistory> getRecentHistory(String userId, String tenantId,
-                                                    int limit) {
+    public Page<ResearchHistory> getRecentHistory(String userId, String tenantId,
+                                                   int page, int size) {
         return historyRepo.findByUserIdAndTenantIdOrderByCreatedAtDesc(
-            userId, tenantId, PageRequest.of(0, limit));
+            userId, tenantId, PageRequest.of(page, size));
     }
 
     /**

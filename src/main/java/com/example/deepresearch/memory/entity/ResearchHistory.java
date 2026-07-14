@@ -56,11 +56,15 @@ public class ResearchHistory {
     @Column(nullable = false, length = 32)
     private String status;
 
-    /** 评估分数（JSON 格式，EvalAgent 异步写入，可为 null）
-     *  示例: {"relevance":4.0,"coherence":3.5,"citationAccuracy":4.0,"completeness":3.0,"conciseness":4.5,"overallScore":3.8,"summary":"..."}
-     */
+    /** 评估分数（JSON 格式，EvalAgent 异步写入，可为 null） */
     @Column(columnDefinition = "TEXT")
     private String evalScores;
+
+    /** 证据池（JSON 数组，研究完成时写入，供前端引用溯源和证据抽屉使用）
+     *  示例: [{"sourceId":"WEB01_1","title":"...","url":"...","domain":"...","score":0.85,...}]
+     */
+    @Column(columnDefinition = "TEXT")
+    private String sourceIndex;
 
     /** 创建时间 */
     @Column(nullable = false, updatable = false)
@@ -72,7 +76,8 @@ public class ResearchHistory {
 
     public ResearchHistory(String sessionId, String userId, String tenantId,
                            String query, String report, int wordCount,
-                           int citationCount, int iterationCount, String status) {
+                           int citationCount, int iterationCount, String status,
+                           String sourceIndex) {
         this.sessionId = sessionId;
         this.userId = userId;
         this.tenantId = tenantId;
@@ -82,6 +87,7 @@ public class ResearchHistory {
         this.citationCount = citationCount;
         this.iterationCount = iterationCount;
         this.status = status;
+        this.sourceIndex = sourceIndex;
         this.createdAt = LocalDateTime.now();
     }
 
@@ -125,6 +131,9 @@ public class ResearchHistory {
 
     public String getEvalScores() { return evalScores; }
     public void setEvalScores(String evalScores) { this.evalScores = evalScores; }
+
+    public String getSourceIndex() { return sourceIndex; }
+    public void setSourceIndex(String sourceIndex) { this.sourceIndex = sourceIndex; }
 
     public LocalDateTime getCreatedAt() { return createdAt; }
 }

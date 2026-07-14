@@ -147,6 +147,8 @@ export interface ResearchHistoryItem {
   status: 'COMPLETED' | 'ERROR';
   /** JSON string — EvalResult 序列化，nullable */
   evalScores?: string;
+  /** JSON string — Evidence[] 序列化，供引用溯源和证据抽屉使用 */
+  sourceIndex?: string;
   createdAt: string;
 }
 

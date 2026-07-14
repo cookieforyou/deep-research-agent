@@ -1,26 +1,29 @@
 package com.example.deepresearch.memory.repository;
 
 import com.example.deepresearch.memory.entity.ResearchHistory;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.stereotype.Repository;
 
-import java.util.List;
+import java.util.Optional;
 
 /**
  * 研究历史 Repository.
  */
 @Repository
-public interface ResearchHistoryRepository extends JpaRepository<ResearchHistory, Long> {
+public interface ResearchHistoryRepository
+    extends JpaRepository<ResearchHistory, Long>, JpaSpecificationExecutor<ResearchHistory> {
 
     /**
-     * 按用户 ID 和租户 ID 查找最近的研究记录.
+     * 按用户和租户分页查询，按创建时间倒序.
      */
-    List<ResearchHistory> findByUserIdAndTenantIdOrderByCreatedAtDesc(
+    Page<ResearchHistory> findByUserIdAndTenantIdOrderByCreatedAtDesc(
         String userId, String tenantId, Pageable pageable);
 
     /**
-     * 按会话 ID 查找.
+     * 按会话 ID 查询.
      */
-    java.util.Optional<ResearchHistory> findBySessionId(String sessionId);
+    Optional<ResearchHistory> findBySessionId(String sessionId);
 }

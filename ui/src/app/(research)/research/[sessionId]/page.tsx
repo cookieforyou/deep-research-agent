@@ -189,7 +189,11 @@ export default function ResearchDetailPage({
                 </div>
               </div>
               <Suspense fallback={<ReportSkeleton />}>
-                <ReportViewer report={report} metadata={metadata} />
+                <ReportViewer
+                  report={report}
+                  metadata={metadata}
+                  sourceIndex={reportData?.sourceIndex}
+                />
               </Suspense>
             </div>
           )}

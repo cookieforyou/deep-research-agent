@@ -9,7 +9,6 @@ import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
 import java.time.Duration;
-import java.util.List;
 import java.util.Optional;
 
 /**
@@ -126,11 +125,12 @@ public class MemoryManager {
      */
     public void recordResearchHistory(String sessionId, String userId, String tenantId,
                                        String query, String report, int wordCount,
-                                       int citationCount, int iterationCount, String status) {
-        log.info("[Memory] 持久化研究历史: sessionId={}, words={}, status={}",
-            sessionId, wordCount, status);
+                                       int citationCount, int iterationCount, String status,
+                                       String sourceIndex) {
+        log.info("[Memory] 持久化研究历史: sessionId={}, words={}, citations={}, status={}",
+            sessionId, wordCount, citationCount, status);
         longTermMemory.recordResearch(sessionId, userId, tenantId,
-            query, report, wordCount, citationCount, iterationCount, status);
+            query, report, wordCount, citationCount, iterationCount, status, sourceIndex);
     }
 
     /**
@@ -170,14 +170,6 @@ public class MemoryManager {
      */
     public void updateEvalScores(String sessionId, String evalScoresJson) {
         longTermMemory.updateEvalScores(sessionId, evalScoresJson);
-    }
-
-    /**
-     * 获取用户全部研究历史记录（代理到 LongTermMemoryService）.
-     * 供历史 API 列表查询使用，limit=1000 防止内存溢出。
-     */
-    public List<ResearchHistory> getResearchHistory(String userId, String tenantId) {
-        return longTermMemory.getRecentHistory(userId, tenantId, 1000);
     }
 
     public Optional<ResearchHistory> getResearchBySessionId(String sessionId) {

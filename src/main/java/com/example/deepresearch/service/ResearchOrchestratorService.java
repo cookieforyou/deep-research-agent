@@ -344,11 +344,12 @@ public class ResearchOrchestratorService {
             // 更新用户画像（兴趣、最近主题、研究计数）
             memoryManager.recordResearchCompletion(userId, tenantId, topic);
 
-            // 持久化完整研究历史
+            // 持久化完整研究历史（含证据池 JSON）
             int citationCount = state.sourceIndex().size();
+            String sourceIndexJson = serializeSourceIndex(state);
             memoryManager.recordResearchHistory(
                 sessionId, userId, tenantId, query, report, wordCount,
-                citationCount, state.iteration(), "COMPLETED");
+                citationCount, state.iteration(), "COMPLETED", sourceIndexJson);
 
             // 将研究报告向量化写入 Milvus 语义记忆库（L2 自生长层）
             memoryManager.indexResearchToSemanticMemory(sessionId, tenantId, query, report);
@@ -416,6 +417,18 @@ public class ResearchOrchestratorService {
                     sessionId, e.getMessage());
             }
         }, virtualThreadExecutor);
+    }
+
+    /**
+     * 将 ResearchState 中的 sourceIndex 序列化为 JSON 字符串.
+     */
+    private String serializeSourceIndex(ResearchState state) {
+        try {
+            return objectMapper.writeValueAsString(state.sourceIndex());
+        } catch (Exception e) {
+            log.warn("[Orchestrator] sourceIndex 序列化失败: {}", e.getMessage());
+            return "[]";
+        }
     }
 
     /**

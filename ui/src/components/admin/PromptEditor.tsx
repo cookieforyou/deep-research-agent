@@ -20,7 +20,8 @@ import {
 } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, RotateCcw, Save } from 'lucide-react';
+import { Loader2, RotateCcw, Save, GitCompare } from 'lucide-react';
+import { PromptDiffModal } from './PromptDiffModal';
 import { useUpdatePrompt, useResetPrompt } from '@/hooks/usePromptManagement';
 import { PROMPT_TEMPLATE_NAMES } from '@/lib/constants';
 import type { PromptTemplate } from '@/lib/types';
@@ -45,6 +46,9 @@ export function PromptEditor({ template, open, onOpenChange }: PromptEditorProps
   const [status, setStatus] = useState<PromptTemplate['status']>('active');
   const [abGroup, setAbGroup] = useState<string>('none');
 
+  const [showDiff, setShowDiff] = useState(false);
+  const [originalContent, setOriginalContent] = useState('');
+
   const updateMutation = useUpdatePrompt();
   const resetMutation = useResetPrompt();
 
@@ -52,6 +56,7 @@ export function PromptEditor({ template, open, onOpenChange }: PromptEditorProps
   useEffect(() => {
     if (template) {
       setContent(template.content);
+      setOriginalContent(template.content);
       setStatus(template.status);
       setAbGroup(template.abGroup || 'none');
     }
@@ -161,6 +166,16 @@ export function PromptEditor({ template, open, onOpenChange }: PromptEditorProps
             )}
             重置默认
           </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowDiff(true)}
+            disabled={!template || template.version <= 1}
+            title={template && template.version <= 1 ? '首次创建，无历史版本' : '对比修改差异'}
+          >
+            <GitCompare className="h-4 w-4 mr-1" />
+            对比
+          </Button>
           <div className="flex-1" />
           <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
             取消
@@ -175,6 +190,13 @@ export function PromptEditor({ template, open, onOpenChange }: PromptEditorProps
           </Button>
         </DialogFooter>
       </DialogContent>
+
+      <PromptDiffModal
+        current={template}
+        previousContent={originalContent !== template?.content ? originalContent : undefined}
+        open={showDiff}
+        onOpenChange={setShowDiff}
+      />
     </Dialog>
   );
 }
