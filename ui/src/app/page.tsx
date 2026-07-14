@@ -1,19 +1,37 @@
+'use client';
+
+import { useState } from 'react';
 import { ResearchInput } from '@/components/research/ResearchInput';
 import { ExampleQueries } from '@/components/research/ExampleQueries';
+import { RecentHistoryPreview } from '@/components/research/RecentHistoryPreview';
 import { Card, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 
 export default function Home() {
+  // 用于示例查询点击填入输入框
+  // 通过 key prop 触发 ResearchInput 重新挂载，使用新 initialQuery
+  const [selectedQuery, setSelectedQuery] = useState('');
+  const [queryKey, setQueryKey] = useState(0);
+
+  const handleExampleSelect = (query: string) => {
+    setSelectedQuery(query);
+    setQueryKey((k) => k + 1); // 触发 ResearchInput 重新挂载
+  };
+
   return (
     <div className="flex flex-col items-center px-4 py-12 md:py-20">
       <div className="w-full max-w-2xl space-y-8">
         {/* Hero Section */}
         <div className="text-center space-y-3">
-          <h1 className="text-4xl font-bold tracking-tight">DeepResearch 深度研究</h1>
+          <h1 className="text-4xl font-bold tracking-tight">
+            DeepResearch 深度研究
+          </h1>
           <p className="text-lg text-muted-foreground">
-            企业级 AI 多智能体深度研究系统 — 基于 7 个 AI Agent 协同，实时生成引用溯源的深度研报
+            企业级 AI 多智能体深度研究系统
+            <br className="hidden sm:block" />
+            基于 7 个 AI Agent 协同，实时生成引用溯源的深度研报
           </p>
-          <div className="flex justify-center gap-3 flex-wrap">
+          <div className="flex justify-center gap-2 flex-wrap">
             {[
               '7 Agent 协同',
               '双源并行检索',
@@ -31,13 +49,19 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Research Input */}
-        <ResearchInput />
+        {/* Research Input — key 用于示例查询点击后重新挂载 */}
+        <ResearchInput
+          key={queryKey}
+          initialQuery={selectedQuery}
+          initialMode="deep"
+        />
 
-        {/* Example Queries */}
+        {/* Example Queries — 点击填入输入框 */}
         <div>
-          <p className="text-sm text-muted-foreground mb-3 text-center">💡 试试这些研究方向</p>
-          <ExampleQueries />
+          <p className="text-sm text-muted-foreground mb-3 text-center">
+            💡 试试这些研究方向
+          </p>
+          <ExampleQueries onSelect={handleExampleSelect} />
         </div>
 
         <Separator />
@@ -69,6 +93,11 @@ export default function Home() {
             </CardHeader>
           </Card>
         </div>
+
+        <Separator />
+
+        {/* Recent History Preview */}
+        <RecentHistoryPreview />
       </div>
     </div>
   );
