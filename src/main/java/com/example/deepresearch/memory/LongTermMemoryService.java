@@ -13,7 +13,11 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 
 /**
  * 长期记忆服务 — PostgreSQL 用户画像与历史记录.
@@ -121,33 +125,6 @@ public class LongTermMemoryService {
             .toList();
     }
 
-    /**
-     * 获取用户的历史研究主题.
-     */
-    @Transactional(readOnly = true)
-    public List<String> getRecentTopics(String userId, String tenantId, int limit) {
-        Optional<UserProfile> profileOpt = userProfileRepo
-            .findByUserIdAndTenantId(userId, tenantId);
-        return profileOpt
-            .map(p -> {
-                List<String> topics = parseJsonArray(p.getRecentTopics());
-                return topics.size() > limit ? topics.subList(0, limit) : topics;
-            })
-            .orElse(Collections.emptyList());
-    }
-
-    /**
-     * 获取用户偏好设置.
-     */
-    @Transactional(readOnly = true)
-    public Map<String, Object> getUserPreferences(String userId, String tenantId) {
-        Optional<UserProfile> profileOpt = userProfileRepo
-            .findByUserIdAndTenantId(userId, tenantId);
-        return profileOpt
-            .map(p -> parseJsonMap(p.getPreferences()))
-            .orElse(Collections.emptyMap());
-    }
-
     // =========================== 研究历史 ===========================
 
     /**
@@ -177,16 +154,6 @@ public class LongTermMemoryService {
                                                     int limit) {
         return historyRepo.findByUserIdAndTenantIdOrderByCreatedAtDesc(
             userId, tenantId, PageRequest.of(0, limit));
-    }
-
-    /**
-     * 获取用户全部研究记录（按创建时间倒序）.
-     * 供历史 API 列表查询使用。
-     */
-    @Transactional(readOnly = true)
-    public List<ResearchHistory> getAllHistory(String userId, String tenantId) {
-        return historyRepo.findByUserIdAndTenantIdOrderByCreatedAtDesc(
-            userId, tenantId, PageRequest.of(0, 10000));
     }
 
     /**
