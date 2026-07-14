@@ -1,29 +1,47 @@
 'use client';
 
-import { use } from 'react';
+import { use, Suspense } from 'react';
+import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
 import { useResearchSse } from '@/hooks/useResearchSse';
 import { useReportData } from '@/hooks/useReportData';
 import { useEvalData } from '@/hooks/useEvalData';
+import { useNetworkStatus } from '@/hooks/useNetworkStatus';
 import { SseStatusBadge } from '@/components/research/SseStatusBadge';
 import { WorkflowTimeline } from '@/components/research/WorkflowTimeline';
 import { CacheHitBanner } from '@/components/research/CacheHitBanner';
 import { ResearchErrorView } from '@/components/research/ResearchErrorView';
-import { ReportViewer } from '@/components/research/ReportViewer';
-import { ReportOutline } from '@/components/research/ReportOutline';
 import { ReportSkeleton } from '@/components/research/ReportSkeleton';
-import { EvalScoreCard, EvalScoreSkeleton } from '@/components/research/EvalScoreCard';
-import { EvalRadarChart } from '@/components/research/EvalRadarChart';
+import { EvalScoreSkeleton } from '@/components/research/EvalScoreCard';
 import { Sidebar, SidebarToggle } from '@/components/layout/Sidebar';
 import { Separator } from '@/components/ui/separator';
-import { CheckCircle } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { CheckCircle, WifiOff } from 'lucide-react';
+
+// 代码分割：报告渲染相关组件延迟加载（react-markdown ~150 kB gzip）
+const ReportViewer = dynamic(
+  () => import('@/components/research/ReportViewer').then((m) => ({ default: m.ReportViewer })),
+  { loading: () => <ReportSkeleton />, ssr: false },
+);
+
+const ReportOutline = dynamic(
+  () => import('@/components/research/ReportOutline').then((m) => ({ default: m.ReportOutline })),
+  { ssr: false },
+);
+
+const EvalScoreCard = dynamic(
+  () => import('@/components/research/EvalScoreCard').then((m) => ({ default: m.EvalScoreCard })),
+  { loading: () => <EvalScoreSkeleton />, ssr: false },
+);
+
+const EvalRadarChart = dynamic(
+  () => import('@/components/research/EvalRadarChart').then((m) => ({ default: m.EvalRadarChart })),
+  { ssr: false },
+);
 
 /**
- * 研究详情页
- *
- * Phase 3: SSE 实时进度 + WorkflowTimeline 7 阶段可视化
- * Phase 4: ReportViewer 报告渲染 + ReportOutline 大纲导航
- * Phase 5: Eval 分数展示 + 侧边栏评估
+ * 研究详情页 — 完整实现 (Phase 3-5)
+ * Phase 7: 动态导入 + 网络检测 + 代码分割优化
  */
 export default function ResearchDetailPage({
   params,
@@ -34,6 +52,7 @@ export default function ResearchDetailPage({
   const router = useRouter();
   const { events, status, connect, isCompleted, hasError, isCacheHit } =
     useResearchSse(sessionId);
+  const { online } = useNetworkStatus();
 
   // 研究完成后拉取完整报告
   const {
@@ -46,7 +65,7 @@ export default function ResearchDetailPage({
   const metadata = reportData?.metadata;
   const showReport = (isCompleted || isCacheHit) && !reportLoading && report;
 
-  // 异步拉取评估分数（轮询，5s 间隔）
+  // 异步拉取评估分数（轮询 5s 间隔）
   const evalResult = useEvalData(sessionId, isCompleted || isCacheHit);
 
   const handleRetry = () => {
@@ -63,39 +82,13 @@ export default function ResearchDetailPage({
         <div className="p-4 space-y-4">
           {!showReport ? (
             <>
-              <div>
-                <h4 className="text-xs font-medium text-sidebar-foreground mb-1">
-                  会话 ID
-                </h4>
-                <code className="text-[10px] text-muted-foreground break-all">
-                  {sessionId}
-                </code>
-              </div>
-              <div>
-                <h4 className="text-xs font-medium text-sidebar-foreground mb-1">
-                  连接状态
-                </h4>
-                <SseStatusBadge status={status} onReconnect={connect} />
-              </div>
               <div className="text-xs text-muted-foreground">
                 已接收 {events.length} 个进度事件
               </div>
               <Separator />
-              <div className="text-xs text-muted-foreground space-y-1">
-                <p>📋 查询内容 — Phase 5</p>
-                {metadata && (
-                  <>
-                    <p>
-                      📝 {metadata.wordCount.toLocaleString()} 字 ·{' '}
-                      {metadata.citationCount} 引用
-                    </p>
-                  </>
-                )}
-              </div>
             </>
           ) : (
             <>
-              {/* 完成后：元信息 */}
               {metadata && (
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
                   <CheckCircle className="h-3.5 w-3.5 text-green-500 shrink-0" />
@@ -106,17 +99,18 @@ export default function ResearchDetailPage({
               )}
               <Separator />
 
-              {/* 评估分数 */}
               {evalResult ? (
                 <div className="space-y-3">
-                  <EvalScoreCard evalResult={evalResult} />
-                  <EvalRadarChart evalResult={evalResult} height={200} />
+                  <Suspense fallback={<EvalScoreSkeleton />}>
+                    <EvalScoreCard evalResult={evalResult} />
+                  </Suspense>
+                  <Suspense fallback={null}>
+                    <EvalRadarChart evalResult={evalResult} height={200} />
+                  </Suspense>
                 </div>
               ) : (
                 <div className="space-y-2">
-                  <p className="text-xs font-medium text-sidebar-foreground">
-                    评估中...
-                  </p>
+                  <p className="text-xs font-medium text-sidebar-foreground">评估中...</p>
                   <p className="text-xs text-muted-foreground">
                     AI 正在异步评估报告质量（5维评分），预计 10-30 秒完成。
                   </p>
@@ -125,13 +119,11 @@ export default function ResearchDetailPage({
               )}
 
               <Separator />
-
-              {/* 大纲导航 */}
               <div className="space-y-1">
-                <p className="text-xs font-medium text-sidebar-foreground px-1">
-                  报告大纲
-                </p>
-                <ReportOutline report={report} />
+                <p className="text-xs font-medium text-sidebar-foreground px-1">报告大纲</p>
+                <Suspense fallback={null}>
+                  <ReportOutline report={report} />
+                </Suspense>
               </div>
             </>
           )}
@@ -146,7 +138,15 @@ export default function ResearchDetailPage({
           <h2 className="text-sm font-semibold">
             {showReport ? '研究报告' : '研究进度'}
           </h2>
-          <SseStatusBadge status={status} onReconnect={connect} />
+          <div className="flex items-center gap-2">
+            {!online && (
+              <Badge variant="destructive" className="text-[10px] h-5 gap-1">
+                <WifiOff className="h-3 w-3" />
+                离线
+              </Badge>
+            )}
+            <SseStatusBadge status={status} onReconnect={connect} />
+          </div>
         </div>
 
         <div className={showReport ? 'p-6' : 'max-w-2xl mx-auto p-6 space-y-6'}>
@@ -188,7 +188,9 @@ export default function ResearchDetailPage({
                   </div>
                 </div>
               </div>
-              <ReportViewer report={report} metadata={metadata} />
+              <Suspense fallback={<ReportSkeleton />}>
+                <ReportViewer report={report} metadata={metadata} />
+              </Suspense>
             </div>
           )}
 

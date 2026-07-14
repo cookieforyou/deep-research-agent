@@ -60,7 +60,12 @@ export function WorkflowNode({
   const isError = status === 'error';
 
   return (
-    <div className="relative flex gap-4">
+    <div
+      className={cn(
+        'relative flex gap-4 transition-all duration-500',
+        status !== 'pending' && 'opacity-100',
+      )}
+    >
       {/* 左侧：圆圈 + 连线 */}
       <div className="flex flex-col items-center shrink-0">
         {/* 状态圆 */}
@@ -68,7 +73,7 @@ export function WorkflowNode({
           className={cn(
             'relative flex h-9 w-9 items-center justify-center rounded-full border-2 transition-all duration-500',
             isPending && 'border-muted-foreground/30 bg-transparent',
-            isActive && 'border-transparent bg-primary/10',
+            isActive && 'border-transparent bg-primary/10 scale-110',
             isDone && 'border-green-500 bg-green-50 dark:bg-green-950/30',
             isError && 'border-destructive bg-destructive/10',
           )}
