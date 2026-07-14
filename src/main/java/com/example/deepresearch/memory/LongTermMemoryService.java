@@ -9,15 +9,11 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -97,7 +93,7 @@ public class LongTermMemoryService {
         // 更新兴趣标签
         List<String> interests = parseJsonArray(profile.getInterests());
         if (!interests.contains(topic)) {
-            interests.add(0, topic); // 最新的兴趣放在最前面
+            interests.addFirst(topic); // 最新的兴趣放在最前面
             if (interests.size() > 20) {
                 interests = interests.subList(0, 20);
             }
@@ -106,7 +102,7 @@ public class LongTermMemoryService {
 
         // 更新最近研究主题
         List<String> topics = parseJsonArray(profile.getRecentTopics());
-        topics.add(0, topic);
+        topics.addFirst(topic);
         if (topics.size() > 10) {
             topics = topics.subList(0, 10);
         }
@@ -145,16 +141,6 @@ public class LongTermMemoryService {
         log.info("[LongMem] 研究历史已记录: sessionId={}, words={}, status={}",
             sessionId, wordCount, status);
         return saved;
-    }
-
-    /**
-     * 获取用户最近的研究记录（分页）.
-     */
-    @Transactional(readOnly = true)
-    public Page<ResearchHistory> getRecentHistory(String userId, String tenantId,
-                                                   int page, int size) {
-        return historyRepo.findByUserIdAndTenantIdOrderByCreatedAtDesc(
-            userId, tenantId, PageRequest.of(page, size));
     }
 
     /**
@@ -224,19 +210,6 @@ public class LongTermMemoryService {
         } catch (JsonProcessingException e) {
             log.warn("[LongMem] JSON 数组解析失败: {}", json);
             return new ArrayList<>();
-        }
-    }
-
-    @SuppressWarnings("unchecked")
-    private Map<String, Object> parseJsonMap(String json) {
-        if (json == null || json.isBlank() || "{}".equals(json)) {
-            return new HashMap<>();
-        }
-        try {
-            return objectMapper.readValue(json, Map.class);
-        } catch (JsonProcessingException e) {
-            log.warn("[LongMem] JSON Map 解析失败: {}", json);
-            return new HashMap<>();
         }
     }
 

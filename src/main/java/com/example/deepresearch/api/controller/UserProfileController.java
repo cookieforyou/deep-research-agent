@@ -9,7 +9,6 @@ import org.springframework.web.bind.annotation.*;
 
 /**
  * 用户画像 API 控制器。
- *
  * 端点:
  *   GET /api/user/profile?userId=&tenantId=
  */
@@ -30,7 +29,7 @@ public class UserProfileController {
      * 获取用户画像（研究统计、兴趣标签、偏好设置）。
      */
     @GetMapping("/profile")
-    public ResponseEntity<?> getProfile(
+    public ResponseEntity<UserProfile> getProfile(
         @RequestParam String userId,
         @RequestParam String tenantId
     ) {

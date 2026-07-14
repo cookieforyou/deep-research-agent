@@ -54,23 +54,19 @@ public class PromptAdminController {
      * 获取单个模板详情。
      */
     @GetMapping("/{id}")
-    public ResponseEntity<?> getById(@PathVariable String id) {
+    public ResponseEntity<PromptTemplateEntity> getById(@PathVariable String id) {
         log.info("[Admin] 获取模板: id={}", id);
         Optional<PromptTemplateEntity> entity = repository.findById(id);
-        if (entity.isEmpty()) {
-            return ResponseEntity.notFound().build();
-        }
-        return ResponseEntity.ok(entity.get());
+        return entity.map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.notFound().build());
     }
 
     /**
      * PUT /api/admin/prompts/{id}
      * 更新模板内容/状态/AB分组。
      * 字段全部可选，只更新传入的字段。
-     * @Version 乐观锁自动递增版本号。
      */
     @PutMapping("/{id}")
-    public ResponseEntity<?> update(
+    public ResponseEntity<PromptTemplateEntity> update(
         @PathVariable String id,
         @Valid @RequestBody UpdatePromptRequest request
     ) {
@@ -106,8 +102,7 @@ public class PromptAdminController {
 
         } catch (Exception e) {
             log.error("[Admin] 更新模板失败: id={}, error={}", id, e.getMessage(), e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body("更新模板失败: " + e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
 
@@ -116,7 +111,7 @@ public class PromptAdminController {
      * 重置模板内容为 classpath 默认值。
      */
     @PostMapping("/{id}/reset")
-    public ResponseEntity<?> reset(@PathVariable String id) {
+    public ResponseEntity<PromptTemplateEntity> reset(@PathVariable String id) {
         log.info("[Admin] 重置模板: id={}", id);
 
         try {
@@ -128,8 +123,7 @@ public class PromptAdminController {
             // 从 classpath 重新加载默认内容
             String defaultContent = promptService.loadFromClasspath(id);
             if (defaultContent.isEmpty()) {
-                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body("无法从 classpath 加载默认模板: " + id);
+                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
             }
 
             PromptTemplateEntity entity = existing.get();
@@ -144,8 +138,7 @@ public class PromptAdminController {
 
         } catch (Exception e) {
             log.error("[Admin] 重置模板失败: id={}, error={}", id, e.getMessage(), e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body("重置模板失败: " + e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
 

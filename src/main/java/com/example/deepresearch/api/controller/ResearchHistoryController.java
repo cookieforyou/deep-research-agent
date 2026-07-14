@@ -95,7 +95,7 @@ public class ResearchHistoryController {
      * 获取单条研究历史详情（含完整报告、评估分数、证据池）。
      */
     @GetMapping("/{sessionId}")
-    public ResponseEntity<?> getDetail(
+    public ResponseEntity<ResearchHistory> getDetail(
         @PathVariable String sessionId,
         @RequestParam(required = false) String userId,
         @RequestParam(required = false) String tenantId
@@ -121,8 +121,7 @@ public class ResearchHistoryController {
 
         } catch (Exception e) {
             log.error("[History] 获取详情失败: {}", e.getMessage(), e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body("获取研究历史详情失败: " + e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
 
