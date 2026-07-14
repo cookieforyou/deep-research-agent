@@ -180,6 +180,16 @@ public class LongTermMemoryService {
     }
 
     /**
+     * 获取用户全部研究记录（按创建时间倒序）.
+     * 供历史 API 列表查询使用。
+     */
+    @Transactional(readOnly = true)
+    public List<ResearchHistory> getAllHistory(String userId, String tenantId) {
+        return historyRepo.findByUserIdAndTenantIdOrderByCreatedAtDesc(
+            userId, tenantId, PageRequest.of(0, 10000));
+    }
+
+    /**
      * 按会话 ID 获取完整研究报告（供语义缓存使用）.
      *
      * @param sessionId 会话 ID
@@ -207,6 +217,31 @@ public class LongTermMemoryService {
             historyRepo.save(history);
             log.info("[LongMem] 评估分数已更新: sessionId={}", sessionId);
         });
+    }
+
+    /**
+     * 删除研究历史记录.
+     *
+     * @param sessionId 会话 ID
+     */
+    @Transactional
+    public void deleteResearchHistory(String sessionId) {
+        historyRepo.findBySessionId(sessionId).ifPresent(history -> {
+            historyRepo.delete(history);
+            log.info("[LongMem] 研究历史已删除: sessionId={}", sessionId);
+        });
+    }
+
+    /**
+     * 获取用户画像实体.
+     *
+     * @param userId   用户 ID
+     * @param tenantId 租户 ID
+     * @return 用户画像（Optional）
+     */
+    @Transactional(readOnly = true)
+    public Optional<UserProfile> getUserProfile(String userId, String tenantId) {
+        return userProfileRepo.findByUserIdAndTenantId(userId, tenantId);
     }
 
     // =========================== JSON 工具方法 ===========================

@@ -1,5 +1,7 @@
 package com.example.deepresearch.memory;
 
+import com.example.deepresearch.memory.entity.ResearchHistory;
+import com.example.deepresearch.memory.entity.UserProfile;
 import com.example.deepresearch.security.PiiMaskingService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -7,6 +9,8 @@ import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
 import java.time.Duration;
+import java.util.List;
+import java.util.Optional;
 
 /**
  * 记忆管理器 — 统一的记忆系统入口.
@@ -166,6 +170,26 @@ public class MemoryManager {
      */
     public void updateEvalScores(String sessionId, String evalScoresJson) {
         longTermMemory.updateEvalScores(sessionId, evalScoresJson);
+    }
+
+    /**
+     * 获取用户全部研究历史记录（代理到 LongTermMemoryService）.
+     * 供历史 API 列表查询使用。
+     */
+    public List<ResearchHistory> getResearchHistory(String userId, String tenantId) {
+        return longTermMemory.getAllHistory(userId, tenantId);
+    }
+
+    public Optional<ResearchHistory> getResearchBySessionId(String sessionId) {
+        return longTermMemory.getResearchBySessionId(sessionId);
+    }
+
+    public void deleteResearchHistory(String sessionId) {
+        longTermMemory.deleteResearchHistory(sessionId);
+    }
+
+    public Optional<UserProfile> getUserProfile(String userId, String tenantId) {
+        return longTermMemory.getUserProfile(userId, tenantId);
     }
 
     /**

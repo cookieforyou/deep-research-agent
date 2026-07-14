@@ -84,7 +84,7 @@ public class DynamicPromptService {
     /**
      * 从 classpath 加载 Prompt 文件（兜底机制）.
      */
-    private String loadFromClasspath(String templateId) {
+    public String loadFromClasspath(String templateId) {
         try {
             Resource resource = resourceLoader.getResource(
                 "classpath:prompts/" + templateId + ".st");
