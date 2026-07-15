@@ -19,7 +19,7 @@ class JsonParseUtilsTest {
 
     private final JsonParseUtils jsonUtils = new JsonParseUtils(new ObjectMapper());
 
-    /** 供解析的目标类型（模拟 Scout 的 EvidenceListWrapper 结构） */
+    /** 供解析的目标类型（模拟 LLM 输出的典型嵌套列表结构） */
     record Wrapper(List<Item> evidences) {}
     record Item(String sourceId, String title, String url) {}
 

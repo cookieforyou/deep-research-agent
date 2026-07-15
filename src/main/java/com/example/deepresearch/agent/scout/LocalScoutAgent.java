@@ -1,6 +1,7 @@
 package com.example.deepresearch.agent.scout;
 
 import com.example.deepresearch.agent.tool.SearchTools;
+import com.example.deepresearch.agent.tool.SearchTools.CollectedSource;
 import com.example.deepresearch.common.model.Evidence;
 import com.example.deepresearch.common.model.Evidence.SourceType;
 import com.example.deepresearch.common.util.JsonParseUtils;
@@ -14,8 +15,10 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 本地知识库侦察 Agent — LLM 自主调用 localSearch 工具检索内部文档（Spring AI 2.0 @Tool 模式）.
@@ -25,13 +28,13 @@ import java.util.List;
  * 而非硬性执行的批量检索任务。多租户隔离由 {@link SearchTools#localSearch} 内部处理。
  * </p>
  *
- * <h3>重构要点（Spring AI 2.0）</h3>
+ * <h3>工具层证据收集（根治 LLM 复述 JSON 脆弱性）</h3>
  * <ul>
- *   <li>检索操作通过 {@link SearchTools#localSearch} (@Tool 注解) 暴露给 LLM</li>
- *   <li>LLM 通过 ToolCallingAdvisor 自主调用工具，无需手动编排检索流程</li>
- *   <li>LLM 输出通过 {@code .content()} + {@link JsonParseUtils#safeParse} 解析
- *       （单次调用，解析失败时在同一份文本上修复，不重打 LLM）</li>
- *   <li>search() 方法签名不变，LangGraph4j 工作流无需修改</li>
+ *   <li>原始文档片段由 {@link SearchTools} 在 @Tool 执行时直接收集并分配 sourceId</li>
+ *   <li>LLM 只输出选中的 {@code selections}（sourceId + score + relevanceRank），
+ *       不复述文档内容 — 消除未转义引号、输出截断、token 浪费</li>
+ *   <li>Evidence 由 Java 代码从收集结果组装，content 忠于文档原文</li>
+ *   <li>LLM 输出不可用时降级：直接采用全部收集结果（按相似度分排序）</li>
  * </ul>
  */
 @Service
@@ -39,13 +42,21 @@ public class LocalScoutAgent {
 
     private static final Logger log = LoggerFactory.getLogger(LocalScoutAgent.class);
 
+    /** 本地知识库证据基础评分（知识库来源可信度最高） */
+    private static final double LOCAL_BASE_SCORE = 0.92;
+
+    /** 降级路径最多采用的收集结果数 */
+    private static final int MAX_FALLBACK_EVIDENCE = 10;
+
     private final ChatClient chatClient;
     private final SearchTools searchTools;
     private final JsonParseUtils jsonUtils;
     private final String systemPrompt;
     private final String userPromptTemplate;
 
-    private static final EvidenceListWrapper FALLBACK = new EvidenceListWrapper(Collections.emptyList());
+    /** Fallback: LLM JSON 解析失败时的空选择（触发收集结果降级） */
+    private static final SelectionListWrapper FALLBACK =
+        new SelectionListWrapper(Collections.emptyList());
 
     public LocalScoutAgent(
         @Qualifier("localScoutClient") ChatClient chatClient,
@@ -66,7 +77,8 @@ public class LocalScoutAgent {
      * 执行本地知识库检索取证.
      * <p>
      * Planner 的搜索计划作为 prompt 上下文指引 LLM，LLM 通过 ToolCallingAdvisor
-     * 自主决定如何调用 {@code localSearch} 工具。多租户隔离由工具内部自动处理。
+     * 自主决定如何调用 {@code localSearch} 工具。原始文档片段在工具层收集，
+     * LLM 仅输出筛选结论（sourceId 列表）。多租户隔离由工具内部自动处理。
      * </p>
      *
      * @param query             原始研究查询
@@ -86,16 +98,15 @@ public class LocalScoutAgent {
         String queriesContext = String.join("\n", searchPlanQueries.stream()
             .map(q -> "- " + q).toList());
 
-        try {
-            // 设置租户 ID 到 SearchTools，确保 @Tool 执行时 ThreadLocal 跨虚拟线程可用
-            searchTools.setTenantId(tenantId);
+        // 设置租户 ID 到 SearchTools，确保 @Tool 执行时 ThreadLocal 跨虚拟线程可用
+        searchTools.setTenantId(tenantId);
 
-            // LLM 自主决定调用 localSearch 工具的时机和参数
-            // ToolCallingAdvisor 自动处理工具调用循环
-            // 注意：先取原始文本再用 safeParse 解析（内含 JSON 修复），而非 .entity()。
-            // .entity() 失败时原始 content 不可恢复，只能重打一次 LLM+全部检索（成本/延迟翻倍），
-            // 且第二次输出大概率复现同类 JSON 缺陷。Prompt 模板已内置 JSON 格式说明。
-            String raw = chatClient.prompt()
+        // 开启工具层证据收集（@Tool 执行与本方法同线程）
+        searchTools.beginCollection("LOCAL");
+        String raw = null;
+        Map<String, CollectedSource> collected;
+        try {
+            raw = chatClient.prompt()
                 .advisors(a -> a.param("agent", "LocalScout").param("tier", "flash")
                     .param("skipPiiMask", true))
                 .system(systemPrompt)
@@ -103,45 +114,78 @@ public class LocalScoutAgent {
                     .replace("{{query}}", query)
                     .replace("{{searchPlanQueries}}", queriesContext)
                     .replace("{{tenantId}}", tenantId))
-                //.tools(searchTools)  // searchTools 已在 AgentBundle 中通过 defaultTools 注册，这里无需注入
                 .call()
                 .content();
-
-            EvidenceListWrapper result = jsonUtils.safeParse(raw,
-                EvidenceListWrapper.class, FALLBACK, "LocalScout");
-            log.debug("[LocalScout] LLM 解析完成: {} 条证据", result.evidences().size());
-
-            return toEvidences(result);
-
         } catch (Exception ex) {
-            log.error("[LocalScout] 本地检索失败", ex);
+            log.warn("[LocalScout] LLM 调用失败，尝试用已收集结果降级: {}", ex.getMessage());
+        } finally {
+            collected = searchTools.endCollection();
+        }
+
+        SelectionListWrapper result = raw != null
+            ? jsonUtils.safeParse(raw, SelectionListWrapper.class, FALLBACK, "LocalScout")
+            : FALLBACK;
+
+        List<Evidence> evidences = toEvidences(result.selections(), collected);
+        if (evidences.isEmpty() && !collected.isEmpty()) {
+            log.warn("[LocalScout] LLM 未返回有效选择，降级采用全部收集结果: {} 条",
+                collected.size());
+            evidences = fallbackEvidences(collected);
+        }
+        log.info("[LocalScout] 检索完成: 收集 {} 条原始结果, 产出 {} 条证据",
+            collected.size(), evidences.size());
+        return evidences;
+    }
+
+    /**
+     * 按 LLM 选择组装 Evidence — title/url/content 均来自工具层收集的原文.
+     */
+    private List<Evidence> toEvidences(List<Selection> selections,
+                                        Map<String, CollectedSource> collected) {
+        if (selections == null || selections.isEmpty()) {
             return List.of();
         }
+        List<Evidence> evidences = new ArrayList<>();
+        for (Selection sel : selections) {
+            CollectedSource src = collected.get(sel.sourceId());
+            if (src == null) {
+                log.warn("[LocalScout] LLM 引用了不存在的 sourceId（已跳过）: {}", sel.sourceId());
+                continue;
+            }
+            evidences.add(new Evidence(
+                src.sourceId(), SourceType.LOCAL, src.url(), src.title(), src.content(),
+                LOCAL_BASE_SCORE, // 本地知识库基础评分最高
+                sel.relevanceRank(), src.domain(), LocalDateTime.now()));
+        }
+        return evidences;
     }
 
-    /** 将 LLM 输出的简化 DTO 转换为领域模型 Evidence. */
-    private List<Evidence> toEvidences(EvidenceListWrapper wrapper) {
-        return wrapper.evidences().stream()
-            .map(e -> new Evidence(
-                e.sourceId(), SourceType.LOCAL, e.url(), e.title(), e.content(),
-                0.92,  // 本地知识库基础评分最高
-                e.relevanceRank(),
-                e.domain() != null ? e.domain() : "internal",
-                LocalDateTime.now()))
+    /**
+     * 降级路径：LLM 输出不可用时直接采用收集结果，按向量相似度分排序.
+     */
+    private List<Evidence> fallbackEvidences(Map<String, CollectedSource> collected) {
+        List<CollectedSource> sorted = collected.values().stream()
+            .sorted((a, b) -> Double.compare(b.baseScore(), a.baseScore()))
+            .limit(MAX_FALLBACK_EVIDENCE)
             .toList();
+        List<Evidence> evidences = new ArrayList<>();
+        for (int i = 0; i < sorted.size(); i++) {
+            CollectedSource src = sorted.get(i);
+            evidences.add(new Evidence(
+                src.sourceId(), SourceType.LOCAL, src.url(), src.title(), src.content(),
+                LOCAL_BASE_SCORE, i + 1, src.domain(), LocalDateTime.now()));
+        }
+        return evidences;
     }
 
-    public record EvidenceListWrapper(List<ScoutEvidence> evidences) {}
+    /** LLM 输出的筛选结论包装 — 只含 sourceId 引用，不复述内容 */
+    public record SelectionListWrapper(List<Selection> selections) {}
 
-    /** 供 LLM 输出的简化证据 DTO（不含 retrievedAt，由 Java 代码设置） */
-    record ScoutEvidence(
+    /** 单条筛选结论（sourceId 指向工具层收集的原始结果） */
+    record Selection(
         String sourceId,
-        String title,
-        String url,
-        String content,
         double score,
-        int relevanceRank,
-        String domain
+        int relevanceRank
     ) {}
 
 }

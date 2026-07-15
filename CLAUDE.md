@@ -39,18 +39,19 @@ src/main/java/com/example/deepresearch/
 ├── api/                                        # 接口层 (WebFlux + SSE)
 │   ├── controller/ResearchController.java      # REST 研究接口
 │   └── dto/                                    # ResearchRequest, ResearchResponse, ProgressEvent
-├── agent/                                      # 智能体层（7 个 Agent + 工具/配置）
+├── agent/                                      # 智能体层（8 个 Agent + 工具/配置）
 │   ├── bundle/AgentBundle.java                 # ChatClient Bean 工厂（5 Advisor 全链 + 两层模型）
 │   ├── bundle/EnterpriseChatClientConfig.java  # 高级 ChatClient（含记忆+RAG 的 7 Advisor 完整链）
 │   ├── bundle/ModelFallbackService.java        # 模型降级 (Pro→Flash CircuitBreaker + 泛型 entity)
 │   ├── intent/IntentRouterAgent.java           # 意图路由 (Flash T=0.0, .entity)
 │   ├── planner/PlannerAgent.java               # 任务规划 (Pro T=0.3 → Flash fallback, .entity)
-│   ├── scout/WebScoutAgent.java                # 网络取证 (Flash T=0.4, LLM @Tool webSearch)
-│   ├── scout/LocalScoutAgent.java              # 本地 RAG 取证 (Flash T=0.4, LLM @Tool localSearch)
-│   ├── tool/SearchTools.java                   # @Tool 工具集 (webSearch + localSearch)
+│   ├── scout/WebScoutAgent.java                # 网络取证 (Flash T=0.4, @Tool webSearch，LLM 只输出 selections)
+│   ├── scout/LocalScoutAgent.java              # 本地 RAG 取证 (Flash T=0.4, @Tool localSearch，LLM 只输出 selections)
+│   ├── tool/SearchTools.java                   # @Tool 工具集 (webSearch + localSearch + ThreadLocal 证据收集器)
 │   ├── analyst/AnalystAgent.java               # 分析归纳 (Flash T=0.2, .entity)
 │   ├── writer/WriterAgent.java                 # 报告撰写 (Pro T=0.4 → Flash fallback, .entity)
-│   └── eval/EvalAgent.java                     # 异步评估 (Flash T=0.05, .entity)
+│   ├── eval/EvalAgent.java                     # 异步评估 (Flash T=0.05, .entity)
+│   └── profile/PreferenceExtractorAgent.java   # 异步偏好提取 (Flash T=0.1, 写入 user_profile.preferences)
 ├── workflow/                                   # LangGraph4j 编排层
 │   ├── ResearchWorkflow.java                   # StateGraph 定义（单轮 DAG，6 节点）
 │   └── state/ResearchState.java                # 工作流状态（AgentState 子类）
@@ -96,7 +97,7 @@ src/main/java/com/example/deepresearch/
 │   └── ProgressEventPublisher.java             # SSE 事件发布
 └── common/                                     # 公共组件
     ├── config/                                 # Spring 配置（App, DeepResearch, Jackson, VirtualThread, WebFlux, HttpClient, Observability）
-    ├── constant/AgentType.java                 # Agent 枚举（7 个 Agent + modelTier）
+    ├── constant/AgentType.java                 # Agent 枚举（8 个 Agent + modelTier）
     ├── exception/                              # 全局异常处理（GlobalExceptionHandler, ResearchException）
     ├── model/                                  # 领域模型 — Java Records（AnalysisResult, EvalResult, Evidence, Finding, PlanResult, SearchPlan, SearchResult, WriteResult, AuditFlag）
     ├── util/JsonParseUtils.java                # LLM JSON 安全解析（修复尾逗号/未闭合括号/中文引号）
@@ -123,15 +124,16 @@ observability/                                  # 可观测性基础设施（Doc
 
 src/main/resources/
 ├── application.yml                             # 主配置（DeepSeek/OpenAI/Embedding/MCP/安全/缓存/降级/可观测性）
-└── prompts/                                    # 8 个 Prompt 模板（.st，DynamicPromptService 数据库优先加载）
+└── prompts/                                    # 9 个 Prompt 模板（.st，DynamicPromptService 数据库优先加载）
     ├── intent-router.st
     ├── planner.st
-    ├── web-scout.st                            # @Tool 模式
-    ├── local-scout.st                          # @Tool 模式
+    ├── web-scout.st                            # @Tool 模式（只引用 sourceId，不复述内容）
+    ├── local-scout.st                          # @Tool 模式（只引用 sourceId，不复述内容）
     ├── analyst.st
     ├── writer.st
     ├── direct-answer.st
-    └── eval.st
+    ├── eval.st
+    └── preference-extractor.st                 # 偏好提取（受限 6 key，保守增量输出）
 
 docs/
 ├── spring-ai-2-0/                              # Spring AI 2.0 参考文档（6 个）
@@ -140,7 +142,7 @@ docs/
 ├── optimization/                               # 优化记录
 │   ├── Spring AI 2.0 项目适配优化清单.md          # 16 项优化分析
 │   ├── Spring AI 2.0 项目优化实施方案与更新记录.md  # 8 轮实施记录 + 最终合规状态（38/38 ✅）
-│   └── sql/init_prompt_templates.sql           # Prompt 模板 DB 初始化（8 模板，ON CONFLICT 可重复执行）
+│   └── sql/init_prompt_templates.sql           # Prompt 模板 DB 初始化（9 模板，ON CONFLICT 可重复执行）
 └── day0/
     ├── 可观测性功能开发实现报告.md
     └── 需求分析与技术实现报告.md
@@ -154,9 +156,11 @@ START → intent_route ──[direct]──→ direct_answer → END
             └──[research]──→ plan → dual_search → filter → analyze → write → END
 ```
 
-6 个节点 + 1 个条件路由，无 Reflect 循环，单轮完成。EvidenceJudge 已由代码级 `EvidenceDeduplicationService` 替代。Writer 完成后异步触发 EvalAgent 进行报告质量评估（fire-and-forget，不阻塞主流程）。
+6 个节点 + 1 个条件路由，无 Reflect 循环，单轮完成。EvidenceJudge 已由代码级 `EvidenceDeduplicationService` 替代。Writer 完成后异步触发 EvalAgent（报告质量评估）和 PreferenceExtractorAgent（用户偏好提取，仅 research 意图），均为 fire-and-forget，不阻塞主流程。
 
 **语义缓存加速路径**：在 `plan` 之前插入缓存检查，命中时跳过全部 Agent 直接返回。
+
+**零证据熔断**：`filter` 后证据池为空时推送 SSE 警告，报告头部注入免责声明，`research_history.status` 记为 `DEGRADED`（而非 COMPLETED），且跳过语义缓存索引（防止无证据报告污染缓存）。
 
 | 节点 | Agent | 模型 | 说明 |
 |:---|:---|:---|:---|
@@ -164,11 +168,12 @@ START → intent_route ──[direct]──→ direct_answer → END
 | [cache] | SemanticCacheService | - | 语义缓存检查（Milvus 向量相似度 > 阈值 → PG 获取完整报告） |
 | direct_answer | ChatClient 直接调用 | Flash | 简单回答（不走研究流程），DynamicPromptService 加载模板 |
 | plan | PlannerAgent | Pro T=0.3 → Flash fallback | 任务拆解+搜索计划（接收 memoryContext），`.entity(PlanResult.class)` |
-| dual_search | WebScoutAgent + LocalScoutAgent | Flash T=0.4 | 双源全并行检索（LLM 自主调用 @Tool webSearch/localSearch） |
-| filter | EvidenceDeduplicationService | 代码级 | URL/标题去重+域名过滤+评分截断 |
+| dual_search | WebScoutAgent + LocalScoutAgent | Flash T=0.4 | 双源全并行检索（LLM 自主调用 @Tool，原始结果由 SearchTools 工具层收集，LLM 只输出 selections） |
+| filter | EvidenceDeduplicationService | 代码级 | URL/标题去重+域名过滤+评分截断（空证据池 → 零证据熔断） |
 | analyze | AnalystAgent | Flash T=0.2 | 结论形成+完备性评估，`.entity(AnalysisResult.class)` |
 | write | WriterAgent + CitationValidator | Pro T=0.4 → Flash fallback | 报告撰写+引用合法性校验，`.entity(WriteResult.class)` |
-| [async:eval] | EvalAgent | Flash T=0.05 | 5维度质量评估（相关性/连贯性/引用准确性/完备性/简洁性），`.entity(EvalResult.class)` |
+| [async:eval] | EvalAgent | Flash T=0.05 | 5维度质量评估（相关性/连贯性/引用准确性/完备性/简洁性），`.entity(EvalResult.class)`；零引用时 citationAccuracy 代码级强制 1.0 |
+| [async:preference] | PreferenceExtractorAgent | Flash T=0.1 | 从 query+最近主题保守提取偏好（受限 6 key），代码级 merge 写入 `user_profile.preferences` |
 
 ## 三层记忆架构
 
@@ -181,7 +186,8 @@ START → intent_route ──[direct]──→ direct_answer → END
 **数据流**：
 - 研究前：`MemoryManager.buildMemoryContext()` → 三元组 Mono.zip（短期+语义+长期）→ 注入 Planner
 - 研究前：[缓存检查] `SemanticCacheService.checkCache()` → Milvus 高阈值相似度检索 → 命中时从 PG 获取完整报告直接返回
-- 研究后：`MemoryManager.indexResearchToSemanticMemory()` → 报告分块 → 向量化 → 写入 Milvus
+- 研究后：`MemoryManager.indexResearchToSemanticMemory()` → 报告分块 → 向量化 → 写入 Milvus（DEGRADED 报告跳过，防止污染语义缓存）
+- 研究后：PreferenceExtractorAgent 异步提取偏好 → `LongTermMemoryService.mergeUserPreferences()` 代码级合并（新值覆盖同名 key，上限 20 key）→ 下次研究经画像上下文注入 Planner
 
 语义记忆使用 `doc_type == "research_history"` 与用户上传文档（L3 层）隔离。
 语义缓存复用同一 Milvus 集合，通过 `session_id` 字段关联 PG 获取完整报告。
@@ -198,10 +204,11 @@ START → intent_route ──[direct]──→ direct_answer → END
 
 ### Agent 设计
 - 每个 Agent 是独立的 `@Service`，封装一个 `ChatClient`
-- 7 个 Agent 分属两层模型：2 个 Pro（Planner/Writer）+ 5 个 Flash（IntentRouter/WebScout/LocalScout/Analyst/Eval）
+- 8 个 Agent 分属两层模型：2 个 Pro（Planner/Writer）+ 6 个 Flash（IntentRouter/WebScout/LocalScout/Analyst/Eval/PreferenceExtractor）
 - 每个 Agent 的 Prompt 模板通过 `DynamicPromptService.getTemplateContent("id")` 加载（DB优先 + classpath兜底，1分钟缓存TTL，支持热更新）
-- 每个 Agent 使用 `.call().entity(Record.class)` 实现结构化输出（替代手动 JSON 解析）
+- 结构化输出：Planner/Analyst/Writer 等使用 `.call().entity(Record.class)`；两个 Scout 和 PreferenceExtractor 使用 `.content()` + `JsonParseUtils.safeParse`（单次调用，解析失败在同一份文本上修复，不重打 LLM）
 - WebScoutAgent 和 LocalScoutAgent 使用 LLM 自主调用 `@Tool`（webSearch/localSearch），工具通过 `AgentBundle.defaultTools()` 注册
+- **工具层证据收集**：`SearchTools` 在 @Tool 执行时通过 ThreadLocal 收集器直接收集原始结果并分配 sourceId（按 URL/文档块去重）；Scout 的 LLM 只输出 `selections`（sourceId+score+relevanceRank），Evidence 由 Java 组装、content 忠于检索原文；LLM 输出不可用时降级采用全部收集结果（Web 走 EvidenceScorer 规则评分）
 - `ModelFallbackService` 提供泛型 `<T>` 降级方法，内置 CircuitBreaker 保护
 
 ### 工作流
@@ -214,6 +221,7 @@ START → intent_route ──[direct]──→ direct_answer → END
 ### 多租户
 - `ResearchState.tenantId` 贯穿全流程
 - Milvus 检索时 `FilterExpression` 强制注入 `tenant_id`
+- **身份以 JWT 为准**：Controller 层从 claims 解析 `sub`/`tenant_id` 强制覆盖请求体声明（请求体值可被伪造，仅在 claim 缺失时兼容回退并 WARN；不一致记 SECURITY 日志 `IDENTITY_MISMATCH`）
 - JWT claims 中提取 `tenant_id` → `TenantContext` ThreadLocal
 - 语义记忆额外过滤 `doc_type == "research_history"` 与知识库文档隔离
 
@@ -237,7 +245,7 @@ START → intent_route ──[direct]──→ direct_answer → END
   - 12 个可配置黑名单关键词
   - 长度异常 + 字符重复弱信号累积评分（阈值 0.5）
   - 检测到注入 → 400 Bad Request，不透露检测细节
-- **架构级防护**: 所有 7 个 Agent + directAnswer 节点使用 `chatClient.prompt().system().user()` 分离，利用 DeepSeek V4 原生角色隔离
+- **架构级防护**: 所有 8 个 Agent + directAnswer 节点使用 `chatClient.prompt().system().user()` 分离，利用 DeepSeek V4 原生角色隔离
 
 ### 可观测性
 
@@ -327,6 +335,14 @@ cd observability && docker compose up -d
 | —— P2: AgentBundle 升级为 5 个 Advisor 全企业级链 | ✅ 已修复 | 2026-07-13 |
 | —— P3: Grafana/Prometheus 补充 Spring AI 内置指标（46面板+11告警） | ✅ 已修复 | 2026-07-13 |
 | `.tools(searchTools)` 重复注册导致 IllegalStateException | ✅ 已修复 — 移除 Agent 中重复调用，工具由 defaultTools 统一注册 | 2026-07-13 |
+| **零证据空转事故修复**（P0/P1，见 logs 2026-07-15 session 003e41fb） | ✅ 已完成 | 2026-07-15 |
+| —— P0: WebScout JSON 解析失败（字符串值内未转义 ASCII 引号，如 `"从"信创"迈向"`） | ✅ 已修复 — JsonParseUtils `escapeInnerQuotesInStringValues()` 按行转义 + 单测覆盖 | 2026-07-15 |
+| —— P0: Scout `.entity()` 失败后重打完整 LLM+搜索（成本/延迟翻倍且复现失败） | ✅ 已修复 — 改为 `.content()` 单次调用 + 同一份文本上 safeParse 修复 | 2026-07-15 |
+| —— P1: 零证据仍写报告且状态 COMPLETED（静默质量事故） | ✅ 已修复 — 零证据熔断：SSE 警告 + 报告头免责声明 + status=DEGRADED + 跳过语义缓存索引 | 2026-07-15 |
+| —— P1: Eval 零引用却给 citationAccuracy 满分 | ✅ 已修复 — sourceIndex 为空时代码级强制 1.0 分并重算 overallScore | 2026-07-15 |
+| 租户/用户身份取自请求体可被伪造 | ✅ 已修复 — Controller 以 JWT claims (sub/tenant_id) 为准，请求体仅兼容回退，不一致记 SECURITY 日志 | 2026-07-15 |
+| `user_profile.preferences` 恒为 `{}`（无写入路径） | ✅ 已完成 — 新增 PreferenceExtractorAgent (Flash T=0.1) 研究后异步提取 + 代码级 merge 写入 | 2026-07-15 |
+| **@Tool 层证据收集重构**（根治 LLM 复述 JSON 脆弱性） | ✅ 已完成 — SearchTools ThreadLocal 收集器分配 sourceId 并保存原文；Scout LLM 只输出 selections(sourceId+score+rank)；Evidence 由 Java 组装；LLM 输出不可用时降级采用收集结果（EvidenceScorer 规则评分），零证据空转结构上不可能再发生 | 2026-07-15 |
 
 ### Milvus 集合 Schema Migration 注意
 语义缓存功能需要 `session_id`、`query`、`chunk_index` 三个字段。如果 Milvus 集合是 2026-07-08 之前创建的，需重建：
@@ -335,6 +351,12 @@ cd observability && docker compose up -d
 # Collection("deep_research_kb").drop()
 # 重启应用自动创建新版 schema（11 个字段含 3 个新字段）
 ```
+
+### Prompt 模板 SQL 重跑注意（2026-07-15）
+工具层证据收集重构改变了 `web-scout` / `local-scout` 的输出格式（evidences → selections），并新增 `preference-extractor` 模板。**必须重跑 `docs/optimization/sql/init_prompt_templates.sql`**，否则 DB 优先加载会继续使用旧模板（新代码解析不出 selections 时会走收集结果兜底，不丢证据，但失去 LLM 相关性筛选）。
+
+### 历史脏数据注意（2026-07-15）
+session `003e41fb`（零证据空转事故）的报告在熔断机制上线前已写入 Milvus 语义缓存（5 chunks）+ PG research_history。建议删除 Milvus 中 `session_id == "003e41fb"` 的记录及 PG 对应行，防止相似查询命中缓存返回无证据报告。
 
 ## 常见任务
 
