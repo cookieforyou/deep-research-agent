@@ -27,9 +27,28 @@ export function HistoryList() {
   const [keyword, setKeyword] = useState('');
   const [status, setStatus] = useState('');
   const [sortBy, setSortBy] = useState('createdAt');
+  const [startDate, setStartDate] = useState<string | undefined>();
+  const [endDate, setEndDate] = useState<string | undefined>();
+  const [minScore, setMinScore] = useState<number | undefined>();
 
+  const filterParams = { keyword, status, sortBy, sortDir: 'desc' as const, startDate, endDate, minScore };
   const { data, isLoading, isError, fetchNextPage, hasNextPage, isFetchingNextPage, refetch } =
-    useHistoryList({ keyword, status, sortBy, sortDir: 'desc' });
+    useHistoryList(filterParams);
+
+  const handleDateRangeChange = useCallback(
+    (newStart?: string, newEnd?: string) => {
+      setStartDate(newStart);
+      setEndDate(newEnd);
+    },
+    [],
+  );
+
+  const handleScoreRangeChange = useCallback(
+    (newMinScore?: number) => {
+      setMinScore(newMinScore);
+    },
+    [],
+  );
 
   const allItems = useMemo(
     () => data?.pages.flatMap((page) => page.content) || [],
@@ -69,8 +88,13 @@ export function HistoryList() {
         <HistoryFilters
           status={status}
           sortBy={sortBy}
+          startDate={startDate}
+          endDate={endDate}
+          minScore={minScore}
           onStatusChange={setStatus}
           onSortChange={setSortBy}
+          onDateRangeChange={handleDateRangeChange}
+          onScoreRangeChange={handleScoreRangeChange}
         />
       </div>
 

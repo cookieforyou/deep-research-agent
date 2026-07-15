@@ -26,10 +26,11 @@ public record ResearchHistorySummary(
     String status,
     String evalScores,
     String sourceIndex,
+    String findings,
     LocalDateTime createdAt
 ) {
     /**
-     * 从 ResearchHistory 实体创建摘要（排除 report 字段，包含 sourceIndex）。
+     * 从 ResearchHistory 实体创建摘要（排除 report 字段，包含 sourceIndex 和 findings）。
      */
     public static ResearchHistorySummary from(ResearchHistory h) {
         return new ResearchHistorySummary(
@@ -44,6 +45,7 @@ public record ResearchHistorySummary(
             h.getStatus(),
             h.getEvalScores(),
             h.getSourceIndex(),
+            h.getFindings(),
             h.getCreatedAt()
         );
     }

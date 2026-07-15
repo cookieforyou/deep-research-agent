@@ -15,6 +15,10 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -53,10 +57,13 @@ public class ResearchHistoryController {
         @RequestParam(required = false) String status,
         @RequestParam(required = false) String keyword,
         @RequestParam(defaultValue = "createdAt") String sortBy,
-        @RequestParam(defaultValue = "desc") String sortDir
+        @RequestParam(defaultValue = "desc") String sortDir,
+        @RequestParam(required = false) String startDate,
+        @RequestParam(required = false) String endDate,
+        @RequestParam(required = false) Double minScore
     ) {
-        log.info("[History] 查询研究历史: userId={}, tenantId={}, page={}, size={}, status={}, keyword={}",
-            userId, tenantId, page, size, status, keyword);
+        log.info("[History] 查询研究历史: userId={}, tenantId={}, page={}, size={}, status={}, keyword={}, startDate={}, endDate={}, minScore={}",
+            userId, tenantId, page, size, status, keyword, startDate, endDate, minScore);
 
         try {
             Sort.Direction direction = "asc".equalsIgnoreCase(sortDir)
@@ -75,13 +82,34 @@ public class ResearchHistoryController {
                     predicates.add(cb.like(cb.lower(root.get("query")),
                         "%" + keyword.toLowerCase() + "%"));
                 }
+                // 日期范围筛选
+                if (startDate != null && !startDate.isEmpty()) {
+                    LocalDateTime start = LocalDate.parse(startDate, DateTimeFormatter.ISO_LOCAL_DATE)
+                        .atStartOfDay();
+                    predicates.add(cb.greaterThanOrEqualTo(root.get("createdAt"), start));
+                }
+                if (endDate != null && !endDate.isEmpty()) {
+                    LocalDateTime end = LocalDate.parse(endDate, DateTimeFormatter.ISO_LOCAL_DATE)
+                        .atTime(LocalTime.MAX);
+                    predicates.add(cb.lessThanOrEqualTo(root.get("createdAt"), end));
+                }
                 return cb.and(predicates.toArray(new Predicate[0]));
             };
 
             Page<ResearchHistory> result = repository.findAll(spec, pageable);
 
-            // 转换为 DTO
-            Page<ResearchHistorySummary> summaries = result.map(ResearchHistorySummary::from);
+            // 评分筛选（后置过滤：evalScores 是 JSON 字符串，跨数据库兼容处理）
+            Page<ResearchHistorySummary> summaries;
+            if (minScore != null && minScore > 0) {
+                List<ResearchHistorySummary> filtered = result.stream()
+                    .map(ResearchHistorySummary::from)
+                    .filter(s -> s.evalScores() != null && extractOverallScore(s.evalScores()) >= minScore)
+                    .toList();
+                summaries = new org.springframework.data.domain.PageImpl<>(
+                    filtered, pageable, filtered.size());
+            } else {
+                summaries = result.map(ResearchHistorySummary::from);
+            }
             return ResponseEntity.ok(summaries);
 
         } catch (Exception e) {
@@ -159,5 +187,28 @@ public class ResearchHistoryController {
             log.error("[History] 删除失败: {}", e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
+    }
+
+    /**
+     * 从 evalScores JSON 字符串中提取 overallScore。
+     * <p>
+     * evalScores 格式: {"overallScore":4.2,...}
+     * 解析失败时返回 0.0（不参与评分筛选）。
+     * </p>
+     */
+    private static double extractOverallScore(String evalScores) {
+        if (evalScores == null || evalScores.isEmpty()) return 0.0;
+        try {
+            // 简单正则提取: 避免引入 Jackson 解析的复杂性
+            java.util.regex.Pattern pattern = java.util.regex.Pattern.compile(
+                "\"overallScore\"\\s*:\\s*([\\d.]+)");
+            java.util.regex.Matcher matcher = pattern.matcher(evalScores);
+            if (matcher.find()) {
+                return Double.parseDouble(matcher.group(1));
+            }
+        } catch (Exception e) {
+            // 忽略解析错误
+        }
+        return 0.0;
     }
 }

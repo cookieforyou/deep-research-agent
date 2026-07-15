@@ -66,6 +66,12 @@ public class ResearchHistory {
     @Column(columnDefinition = "TEXT")
     private String sourceIndex;
 
+    /** 研究结论（JSON 数组，Analyst Agent 结构化输出，供前端"关键发现"Tab 渲染）
+     *  示例: [{"findingId":"F1","subQuestionId":"Q1","conclusion":"...","reasoning":"...","supportingEvidenceIds":["WEB01_1"],"confidence":0.85}]
+     */
+    @Column(columnDefinition = "TEXT")
+    private String findings;
+
     /** 创建时间 */
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;
@@ -77,7 +83,7 @@ public class ResearchHistory {
     public ResearchHistory(String sessionId, String userId, String tenantId,
                            String query, String report, int wordCount,
                            int citationCount, int iterationCount, String status,
-                           String sourceIndex) {
+                           String sourceIndex, String findings) {
         this.sessionId = sessionId;
         this.userId = userId;
         this.tenantId = tenantId;
@@ -88,6 +94,7 @@ public class ResearchHistory {
         this.iterationCount = iterationCount;
         this.status = status;
         this.sourceIndex = sourceIndex;
+        this.findings = findings;
         this.createdAt = LocalDateTime.now();
     }
 
@@ -134,6 +141,9 @@ public class ResearchHistory {
 
     public String getSourceIndex() { return sourceIndex; }
     public void setSourceIndex(String sourceIndex) { this.sourceIndex = sourceIndex; }
+
+    public String getFindings() { return findings; }
+    public void setFindings(String findings) { this.findings = findings; }
 
     public LocalDateTime getCreatedAt() { return createdAt; }
 }

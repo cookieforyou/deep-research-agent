@@ -132,14 +132,15 @@ public class LongTermMemoryService {
                                            String tenantId, String query,
                                            String report, int wordCount,
                                            int citationCount, int iterationCount,
-                                           String status, String sourceIndex) {
+                                           String status, String sourceIndex,
+                                           String findings) {
         ResearchHistory history = new ResearchHistory(
             sessionId, userId, tenantId, query, report,
-            wordCount, citationCount, iterationCount, status, sourceIndex);
+            wordCount, citationCount, iterationCount, status, sourceIndex, findings);
 
         ResearchHistory saved = historyRepo.save(history);
-        log.info("[LongMem] 研究历史已记录: sessionId={}, words={}, status={}",
-            sessionId, wordCount, status);
+        log.info("[LongMem] 研究历史已记录: sessionId={}, words={}, status={}, findings={}",
+            sessionId, wordCount, status, findings != null ? findings.length() : 0);
         return saved;
     }
 

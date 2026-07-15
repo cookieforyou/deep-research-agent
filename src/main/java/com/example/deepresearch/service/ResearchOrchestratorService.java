@@ -9,6 +9,7 @@ import com.example.deepresearch.cache.SemanticCacheService;
 import com.example.deepresearch.cache.SemanticCacheService.CacheResult;
 import com.example.deepresearch.common.config.DeepResearchProperties;
 import com.example.deepresearch.common.model.EvalResult;
+import com.example.deepresearch.common.model.Finding;
 import com.example.deepresearch.common.observability.BusinessMetrics;
 import com.example.deepresearch.common.observability.TokenUsageTracker;
 import com.example.deepresearch.memory.MemoryManager;
@@ -25,6 +26,7 @@ import org.springframework.stereotype.Service;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -344,12 +346,14 @@ public class ResearchOrchestratorService {
             // 更新用户画像（兴趣、最近主题、研究计数）
             memoryManager.recordResearchCompletion(userId, tenantId, topic);
 
-            // 持久化完整研究历史（含证据池 JSON）
+            // 持久化完整研究历史（含证据池 JSON + 研究结论 JSON）
             int citationCount = state.sourceIndex().size();
-            String sourceIndexJson = serializeSourceIndex(state);
+            String sourceIndexJson = serializeEvidencePool(state);
+            String findingsJson = serializeFindings(state);
             memoryManager.recordResearchHistory(
                 sessionId, userId, tenantId, query, report, wordCount,
-                citationCount, state.iteration(), "COMPLETED", sourceIndexJson);
+                citationCount, state.iteration(), "COMPLETED",
+                sourceIndexJson, findingsJson);
 
             // 将研究报告向量化写入 Milvus 语义记忆库（L2 自生长层）
             memoryManager.indexResearchToSemanticMemory(sessionId, tenantId, query, report);
@@ -420,13 +424,37 @@ public class ResearchOrchestratorService {
     }
 
     /**
-     * 将 ResearchState 中的 sourceIndex 序列化为 JSON 字符串.
+     * 将 ResearchState 中的 evidencePool 序列化为 JSON 字符串.
+     * <p>
+     * 注意：这里序列化 evidencePool（完整 Evidence 对象列表）而非 sourceIndex（仅 ID 列表），
+     * 以确保前端 EvidenceDrawer 和 CitationPopover 能获取完整的证据信息。
+     * </p>
      */
-    private String serializeSourceIndex(ResearchState state) {
+    private String serializeEvidencePool(ResearchState state) {
         try {
-            return objectMapper.writeValueAsString(state.sourceIndex());
+            return objectMapper.writeValueAsString(state.evidencePool());
         } catch (Exception e) {
-            log.warn("[Orchestrator] sourceIndex 序列化失败: {}", e.getMessage());
+            log.warn("[Orchestrator] evidencePool 序列化失败: {}", e.getMessage());
+            return "[]";
+        }
+    }
+
+    /**
+     * 将 ResearchState 中的 findings 序列化为 JSON 字符串.
+     * <p>
+     * 研究结论由 Analyst Agent 产出，包含结论文本、推理链条和支撑证据 ID，
+     * 供前端 ReportViewer "关键发现" Tab 渲染。
+     * </p>
+     */
+    private String serializeFindings(ResearchState state) {
+        try {
+            List<Finding> findings = state.findings();
+            if (findings.isEmpty()) {
+                return "[]";
+            }
+            return objectMapper.writeValueAsString(findings);
+        } catch (Exception e) {
+            log.warn("[Orchestrator] findings 序列化失败: {}", e.getMessage());
             return "[]";
         }
     }

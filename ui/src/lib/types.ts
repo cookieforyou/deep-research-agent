@@ -149,6 +149,8 @@ export interface ResearchHistoryItem {
   evalScores?: string;
   /** JSON string — Evidence[] 序列化，供引用溯源和证据抽屉使用 */
   sourceIndex?: string;
+  /** JSON string — Finding[] 序列化，供"关键发现"Tab 渲染 */
+  findings?: string;
   createdAt: string;
 }
 

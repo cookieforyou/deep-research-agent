@@ -10,6 +10,9 @@ interface HistoryFilters {
   status?: string;
   sortBy?: string;
   sortDir?: string;
+  startDate?: string;
+  endDate?: string;
+  minScore?: number;
 }
 
 /**

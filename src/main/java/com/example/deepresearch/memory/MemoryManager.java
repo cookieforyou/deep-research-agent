@@ -126,11 +126,12 @@ public class MemoryManager {
     public void recordResearchHistory(String sessionId, String userId, String tenantId,
                                        String query, String report, int wordCount,
                                        int citationCount, int iterationCount, String status,
-                                       String sourceIndex) {
+                                       String sourceIndex, String findings) {
         log.info("[Memory] 持久化研究历史: sessionId={}, words={}, citations={}, status={}",
             sessionId, wordCount, citationCount, status);
         longTermMemory.recordResearch(sessionId, userId, tenantId,
-            query, report, wordCount, citationCount, iterationCount, status, sourceIndex);
+            query, report, wordCount, citationCount, iterationCount, status,
+            sourceIndex, findings);
     }
 
     /**

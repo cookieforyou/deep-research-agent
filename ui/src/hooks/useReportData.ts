@@ -8,6 +8,7 @@ interface ReportData {
   report: string;
   metadata: ResearchResponse['metadata'];
   sourceIndex?: string;
+  findings?: string;
 }
 
 /**
@@ -41,6 +42,7 @@ export function useReportData(sessionId: string, enabled: boolean) {
         report: reportQuery.data.report || '',
         metadata: reportQuery.data.metadata,
         sourceIndex: historyQuery.data?.sourceIndex,
+        findings: historyQuery.data?.findings,
       }
     : undefined;
 

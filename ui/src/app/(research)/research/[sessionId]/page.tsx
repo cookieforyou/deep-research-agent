@@ -193,6 +193,7 @@ export default function ResearchDetailPage({
                   report={report}
                   metadata={metadata}
                   sourceIndex={reportData?.sourceIndex}
+                  findings={reportData?.findings}
                 />
               </Suspense>
             </div>

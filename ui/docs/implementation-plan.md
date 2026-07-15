@@ -3005,3 +3005,153 @@ npx next-bundle-analyzer      # Bundle 分析（需配置）
 ---
 
 > 📌 **总结**: 本实施计划将前端工程拆解为 7 个可验证的阶段，从脚手架搭建到最终打磨。**全部 7 个 Phase 已完成**（实际耗时约 9 小时），后端同步新增 3 个 Controller（10 个 API 端点）。前端 50+ 组件覆盖 4 个页面、SSE 实时进度、Markdown 报告渲染、评估雷达图和 Prompt 管理。性能优化后研究详情页首屏 JS 从 430 kB 降至 **151 kB**（-65%）。
+
+---
+
+## 附录 D: 剩余待办事项（2026-07-15 审计）
+
+> 基于前端设计文档 `frontend-design.md` 全面交叉审计，以下列出所有未完成或部分完成的事项。
+
+### D.1 优先级总览
+
+| 优先级 | 数量 | 说明 |
+|:---|:---|:---|
+| **P0** — 功能对齐 | ~~3 项~~ ✅ 全部完成 (2026-07-15) | 设计文档明确要求但缺失或未完整实现 |
+| **P1** — 测试覆盖 | 3 项 | 零测试，CI 流水线配置了但无法运行 |
+| **P2** — 体验打磨 | 4 项 | 动画、移动端适配、性能优化细节 |
+| **P3** — 预留/可选 | 6 项 | 设计文档标记为预留或可选的功能 |
+| **后端** | 2 项 | 后端可能的改进项 |
+
+---
+
+### D.2 P0 — 功能对齐（设计文档要求但缺失）✅ 已完成 (2026-07-15)
+
+#### D.2.1 AbTestConfig 组件
+
+- **状态**: ✅ 已修复
+- **修复**: 创建独立 `AbTestConfig.tsx` 组件 — Dialog 弹窗展示全部 8 个模板的 A/B 分组情况，支持批量配置+全部清除+变更检测
+- **集成**: `PromptTable.tsx` 工具栏新增 "A/B 配置" 按钮
+- **设计文档**: `components/admin/AbTestConfig.tsx` ✅
+
+#### D.2.2 HistoryFilters 缺少日期范围筛选和评分筛选
+
+- **状态**: ✅ 已修复
+- **修复**: 
+  - `HistoryFilters.tsx` — 新增"高级筛选"面板（原生 `<input type="date">` 日期范围 + `<input type="range">` 评分滑动条 0-5）
+  - `HistoryList.tsx` — 新增 startDate/endDate/minScore 状态管理
+  - `useHistoryList.ts` — HistoryFilters 接口扩展 date/score 参数
+  - `api.ts` — historyApi.list 支持 startDate/endDate/minScore 查询参数
+  - `ResearchHistoryController.java` — JPA Specification 日期范围过滤 + 后置评分筛选
+  - `ResearchHistorySummary.java` — 新增 findings 字段
+
+#### D.2.3 ReportViewer "关键发现" Tab 缺少结构化 Findings
+
+- **状态**: ✅ 已修复
+- **修复**:
+  - 后端: `ResearchHistory` Entity 新增 `findings` TEXT 列 + `serializeFindings()` 方法
+  - 后端: `LongTermMemoryService` / `MemoryManager` 全链路传递 findings
+  - 后端: `serializeSourceIndex` → `serializeEvidencePool`（修复证据池序列化 bug）
+  - 前端: `ResearchHistoryItem` 类型新增 `findings` 字段
+  - 前端: `ReportViewer` "关键发现" Tab 渲染 Finding 卡片（conclusion + reasoning + supportingEvidenceIds + confidence 进度条）
+  - 前端: `lib/evidence.ts` 新增 `parseFindings()` 工具函数
+  - 前端: `useReportData` + 研究详情页传递 findings
+
+---
+
+### D.3 P1 — 测试覆盖（零测试）
+
+#### D.3.1 前端单元测试 — 零实现
+
+- **状态**: ❌ 完全缺失
+- **设计文档**: `~45 个测试用例` 覆盖 17 个文件
+- **实际**: 项目中没有 `__tests__` 目录，无任何 `*.test.*` / `*.spec.*` 文件
+- **基础设施**: `vitest.config.ts` + `vitest.setup.ts` 已配置，`vitest` 包已安装
+- **CI 影响**: `.github/workflows/ui-ci.yml` 中的 `test` job (`pnpm test -- --coverage`) 会报 "No test files found"
+
+#### D.3.2 E2E 测试 — 零实现
+
+- **状态**: ❌ 完全缺失
+- **设计文档**: `~12 个 E2E 用例`
+- **实际**: 无 `playwright.config.ts`，无 `e2e/` 或 `tests/` 目录，无任何测试文件
+- **CI 影响**: CI 中的 `e2e` job (`pnpm exec playwright test`) 会因缺少配置文件而失败
+
+#### D.3.3 Lighthouse 性能审计
+
+- **状态**: ❌ 未执行
+- **设计文档**: Phase 7 要求 Performance > 85, Accessibility > 95
+- **需要**: 对 4 个路由分别执行 Lighthouse 审计并记录结果
+
+---
+
+### D.4 P2 — 体验打磨
+
+#### D.4.1 framer-motion 动画
+
+- **状态**: ⚠️ 用 CSS transitions 替代
+- **设计文档要求**: WorkflowTimeline 节点 `AnimatePresence`、EvalScoreCard 数字递增 `useSpring`
+- **实际**: 已用 CSS `transition-all duration-500 scale-110` 实现节点动画（framer-motion v11 API 不兼容）
+- **影响**: 中。CSS 动画效果基本可用，但不如 framer-motion 流畅
+
+#### D.4.2 移动端引用 Popover → BottomSheet
+
+- **状态**: ❌ 未实现
+- **设计文档**: 移动端 hover 不可用，引用 Popover 应切换为 BottomSheet
+- **实际**: CitationPopover 在所有视口都是 HoverCard，移动端无法触摸触发
+- **方案**: 使用 `useMediaQuery` 检测触摸设备，切换为 Dialog/Sheet
+
+#### D.4.3 虚拟滚动（历史列表）
+
+- **状态**: ❌ 未实现
+- **设计文档**: 超 1000 条历史记录时使用 `@tanstack/react-virtual`
+- **实际**: 使用 TanStack `useInfiniteQuery` 分页，20 条/页，用户量小的时候足够
+- **影响**: 低。当前后端分页已覆盖，大量数据场景下可优化
+
+#### D.4.4 Bundle analyzer
+
+- **状态**: ❌ 未配置
+- **设计文档**: Phase 7 提到 `@next/bundle-analyzer`
+- **实际**: 依赖未安装，配置未添加
+- **影响**: 低。`pnpm build` 输出的首屏 JS 数据已有
+
+---
+
+### D.5 P3 — 预留/可选功能
+
+| # | 项 | 设计文档 | 说明 |
+|:---|:---|:---|:---|
+| D.5.1 | **Admin users 页面** | 路由存在，标记为"预留" | 3 张功能预览卡片 + "后续版本实现"占位 |
+| D.5.2 | **Storybook** | 标记为"可选" | 无 `.storybook/` 目录，无任何 stories 文件 |
+| D.5.3 | **nginx.conf** | 生产反向代理 | 当前用 Next.js rewrites 代理，生产部署时可按需添加 |
+| D.5.4 | **PromptPreview 组件** | 模板变量预览 | 未创建，PromptEditor 中无变量列表面板 |
+| D.5.5 | **useReportStream hook** | 标记为"预留" | 当前 `useReportData`（轮询）+ `useResearchSse`（SSE）已覆盖需求 |
+| D.5.6 | **SearchProgress 独立组件** | 文档列为独立组件 | 已合并到 `WorkflowNode.tsx` 的 `SearchChildNode` 子组件 |
+
+---
+
+### D.6 后端可能的改进项
+
+#### D.6.1 findings 数据暴露
+
+- **状态**: ✅ 已修复 (2026-07-15)
+- **修复**: `ResearchHistory` Entity 新增 `findings` TEXT 列，`ResearchOrchestratorService.serializeFindings()` 序列化 Analyst Agent 产出的 `List<Finding>`，全链路传递至 API 响应
+
+#### D.6.2 后端测试
+
+- **状态**: 未检查
+- **说明**: 前端设计文档不涵盖后端测试，但 CI 流水线可考虑加入 `mvn test`
+
+---
+
+### D.7 当前项目健康度
+
+| 维度 | 状态 | 评分 |
+|:---|:---|:---|
+| **前端组件覆盖** | 50+ 组件覆盖全部设计文档要求 | ⭐⭐⭐⭐⭐ 95% |
+| **后端 API 对齐** | 4 个 Controller + 10 个端点 | ⭐⭐⭐⭐⭐ 100% |
+| **类型安全** | TypeScript strict + 后端 Java Records | ⭐⭐⭐⭐⭐ 100% |
+| **构建质量** | `pnpm build` 零错误 + `mvn compile` 零错误 | ⭐⭐⭐⭐⭐ 100% |
+| **代码质量** | `pnpm lint` 零错误零警告 | ⭐⭐⭐⭐⭐ 100% |
+| **性能** | 首屏 JS -65%（151 kB） | ⭐⭐⭐⭐ 90% |
+| **测试覆盖** | 前端零测试 + 后端未检查 | ⭐ 10% |
+| **CI/CD** | 流水线已配置但 test/e2e job 会失败 | ⭐⭐ 40% |
+| **文档完备性** | 设计文档 + 实施计划 + README | ⭐⭐⭐⭐⭐ 100% |

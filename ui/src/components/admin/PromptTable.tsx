@@ -4,9 +4,10 @@ import { useState } from 'react';
 import { usePromptList } from '@/hooks/usePromptManagement';
 import { PromptStatusBadge } from './PromptStatusBadge';
 import { PromptEditor } from './PromptEditor';
+import { AbTestConfig } from './AbTestConfig';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { AlertCircle, Edit, RefreshCw } from 'lucide-react';
+import { AlertCircle, Edit, RefreshCw, TestTube } from 'lucide-react';
 import { PROMPT_TEMPLATE_NAMES } from '@/lib/constants';
 import type { PromptTemplate } from '@/lib/types';
 import dayjs from 'dayjs';
@@ -19,6 +20,7 @@ import dayjs from 'dayjs';
 export function PromptTable() {
   const { data: prompts, isLoading, isError, refetch } = usePromptList();
   const [editing, setEditing] = useState<PromptTemplate | null>(null);
+  const [showAbConfig, setShowAbConfig] = useState(false);
 
   // 加载中
   if (isLoading) {
@@ -56,6 +58,22 @@ export function PromptTable() {
 
   return (
     <>
+      {/* 工具栏 */}
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-xs text-muted-foreground">
+          {list.length} 个模板 · 修改后 1 分钟内自动生效
+        </p>
+        <Button
+          variant="outline"
+          size="sm"
+          className="gap-1 text-xs"
+          onClick={() => setShowAbConfig(true)}
+        >
+          <TestTube className="h-3.5 w-3.5" />
+          A/B 配置
+        </Button>
+      </div>
+
       <div className="rounded-lg border overflow-hidden">
         <table className="w-full">
           <thead className="bg-muted/50">
@@ -139,6 +157,9 @@ export function PromptTable() {
           if (!open) setEditing(null);
         }}
       />
+
+      {/* A/B 测试配置 Dialog */}
+      <AbTestConfig open={showAbConfig} onOpenChange={setShowAbConfig} />
     </>
   );
 }

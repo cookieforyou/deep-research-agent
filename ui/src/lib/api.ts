@@ -63,7 +63,7 @@ export const researchApi = {
 // Phase 5 需要后端新增 ResearchHistoryController
 
 export const historyApi = {
-  /** GET /api/history — 分页查询研究历史 */
+  /** GET /api/history — 分页查询研究历史（支持日期范围和评分筛选） */
   list(params: {
     userId: string;
     tenantId: string;
@@ -73,6 +73,9 @@ export const historyApi = {
     keyword?: string;
     sortBy?: string;
     sortDir?: string;
+    startDate?: string;
+    endDate?: string;
+    minScore?: number;
   }) {
     const searchParams = new URLSearchParams();
     searchParams.set('userId', params.userId);
@@ -83,6 +86,9 @@ export const historyApi = {
     if (params.keyword) searchParams.set('keyword', params.keyword);
     if (params.sortBy) searchParams.set('sortBy', params.sortBy);
     if (params.sortDir) searchParams.set('sortDir', params.sortDir);
+    if (params.startDate) searchParams.set('startDate', params.startDate);
+    if (params.endDate) searchParams.set('endDate', params.endDate);
+    if (params.minScore !== undefined) searchParams.set('minScore', String(params.minScore));
     return request<PaginatedResponse<ResearchHistoryItem>>(`/history?${searchParams}`);
   },
 
