@@ -461,6 +461,15 @@ public class ResearchWorkflow {
                     EvidenceDeduplicationService.DedupResult result = dedupService.deduplicate(
                         state.webEvidence(), state.localEvidence());
 
+                    if (result.dedupedEvidence().isEmpty()) {
+                        // 零证据熔断预警：证据池为空，报告将失去检索证据支撑
+                        log.warn("[filter] 证据池为空 (web={}, local={})，报告将基于模型自身知识生成",
+                            state.webEvidence().size(), state.localEvidence().size());
+                        progressPublisher.publish(sessionId,
+                            ProgressEvent.completed(sessionId, ResearchStage.SEARCH_FALLBACK,
+                                "filter", "警告: 未获得任何有效证据，报告将基于模型自身知识生成（降级模式），可信度受限"));
+                    }
+
                     progressPublisher.publish(sessionId,
                         ProgressEvent.completed(sessionId, ResearchStage.JUDGING,
                             "filter", String.format("去重完成: %d 条有效证据",
@@ -546,6 +555,13 @@ public class ResearchWorkflow {
                     // 步骤 3: 追加参考资料列表
                     String finalReport = citationValidator.appendReferenceList(
                         validation.cleanedReport(), state.sourceIndex());
+
+                    // 零证据降级：报告头部注入免责声明，避免用户误信无证据支撑的内容
+                    if (state.evidencePool().isEmpty()) {
+                        finalReport = "> ⚠️ **降级提示**：本次研究未获得任何检索证据支撑，"
+                            + "以下内容完全基于模型自身知识生成，数据与结论可能过时或不准确，请谨慎参考。\n\n"
+                            + finalReport;
+                    }
 
                     // 检查字数
                     if (result.wordCount() < properties.workflow().minReportWords()) {

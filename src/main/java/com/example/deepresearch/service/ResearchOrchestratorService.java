@@ -346,17 +346,26 @@ public class ResearchOrchestratorService {
             // 更新用户画像（兴趣、最近主题、研究计数）
             memoryManager.recordResearchCompletion(userId, tenantId, topic);
 
+            // 零证据降级判定：证据池为空说明报告仅基于模型自身知识（无引用支撑）
+            boolean degraded = state.evidencePool().isEmpty();
+            String status = degraded ? "DEGRADED" : "COMPLETED";
+
             // 持久化完整研究历史（含证据池 JSON + 研究结论 JSON）
             int citationCount = state.sourceIndex().size();
             String sourceIndexJson = serializeEvidencePool(state);
             String findingsJson = serializeFindings(state);
             memoryManager.recordResearchHistory(
                 sessionId, userId, tenantId, query, report, wordCount,
-                citationCount, state.iteration(), "COMPLETED",
+                citationCount, state.iteration(), status,
                 sourceIndexJson, findingsJson);
 
             // 将研究报告向量化写入 Milvus 语义记忆库（L2 自生长层）
-            memoryManager.indexResearchToSemanticMemory(sessionId, tenantId, query, report);
+            // 降级报告跳过索引：避免污染语义缓存（相似查询会命中缓存直接返回该报告）
+            if (degraded) {
+                log.warn("[Orchestrator] 零证据降级报告，跳过语义记忆索引: sessionId={}", sessionId);
+            } else {
+                memoryManager.indexResearchToSemanticMemory(sessionId, tenantId, query, report);
+            }
 
             // 将报告摘要写入短期记忆（供后续对话上下文）
             String summary = report != null && report.length() > 500

@@ -126,6 +126,17 @@ public class EvalAgent {
                 return EvalResult.FALLBACK;
             }
 
+            // 引用准确性代码级校验：无任何合法引用时不采信 LLM 打分。
+            // LLM 面对"无引用可核对"的报告倾向给满分（无引用 = 无引用错误），
+            // 但对研究报告而言零引用本身就是严重质量缺陷。
+            if (result != EvalResult.FALLBACK
+                && (sourceIndex == null || sourceIndex.isEmpty())) {
+                result = applyZeroCitationPenalty(result);
+                log.warn("[Eval] 报告无合法引用，citationAccuracy 强制降级为 {}，overallScore 重算为 {}",
+                    String.format("%.1f", result.citationAccuracy()),
+                    String.format("%.2f", result.overallScore()));
+            }
+
             log.debug("[Eval] LLM 解析完成: overallScore={}", String.format("%.2f", result.overallScore()));
 
             // 验证评估质量
@@ -150,6 +161,23 @@ public class EvalAgent {
             log.error("[Eval] 评估异常，返回 fallback", e);
             return EvalResult.FALLBACK;
         }
+    }
+
+    /**
+     * 零引用惩罚：citationAccuracy 置为最低分 1.0，并按 5 维度均值重算 overallScore.
+     * <p>
+     * 评分维度定义为 1.0 ~ 5.0，故最低取 1.0 而非 0（0 保留给 FALLBACK 标记）。
+     * </p>
+     */
+    private EvalResult applyZeroCitationPenalty(EvalResult r) {
+        double citationAccuracy = 1.0;
+        double overall = (r.relevance() + r.coherence() + citationAccuracy
+            + r.completeness() + r.conciseness()) / 5.0;
+        String summary = (r.summary() != null ? r.summary() + " " : "")
+            + "[系统强制降级: 报告无任何合法引用支撑，引用准确性判最低分]";
+        return new EvalResult(r.relevance(), r.coherence(), citationAccuracy,
+            r.completeness(), r.conciseness(),
+            Math.round(overall * 100) / 100.0, summary);
     }
 
     /**

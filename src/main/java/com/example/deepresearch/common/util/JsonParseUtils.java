@@ -64,6 +64,23 @@ public class JsonParseUtils {
     private static final Pattern UNQUOTED_STRING_VALUE = Pattern.compile(
         "(\"[^\"]+\"\\s*:\\s*)([^\"\\{\\[\\d\\-tfn\\s][^,\\n\\}\\]\\]]*?)(\\s*[,\\n\\}\\]\\]])");
 
+    /**
+     * 匹配单行完整字符串值（含可选的 "key": 前缀），用于修复值内部未转义的引号.
+     * <p>
+     * 捕获组: $1=行首至值起始引号（含可选键名和冒号）, $2=值内容（贪婪匹配，
+     * 可能含未转义引号）, $3=值结尾引号及可选的逗号/闭合括号。
+     * </p>
+     */
+    private static final Pattern STRING_VALUE_LINE = Pattern.compile(
+        "^(\\s*(?:\"[^\"]+\"\\s*:\\s*)?\")(.*)(\"\\s*[,\\]\\}]*\\s*)$");
+
+    /**
+     * 检测一行内的字段边界（如 {@code "v", "key":}）— 命中说明该行含多个字段，
+     * 值内引号转义会误伤合法 JSON，需跳过.
+     */
+    private static final Pattern FIELD_BOUNDARY_IN_LINE = Pattern.compile(
+        "\"\\s*,\\s*\"[^\"]*\"\\s*:");
+
     public JsonParseUtils(ObjectMapper objectMapper) {
         this.objectMapper = objectMapper;
     }
@@ -222,8 +239,9 @@ public class JsonParseUtils {
     /**
      * 修复 LLM JSON 输出中的常见缺陷.
      * <ol>
-     *   <li>JSON 对象/数组末尾的多余逗号 (如 [1,2,] → [1,2])</li>
      *   <li>BOM 和零宽字符移除</li>
+     *   <li>字符串值内部未转义的双引号 (如 "title": "从"信创"迈向..." → 转义内部引号)</li>
+     *   <li>JSON 对象/数组末尾的多余逗号 (如 [1,2,] → [1,2])</li>
      *   <li>JSON 对象 value 遗漏引号 (如 "title": 中国... → "title": "中国...")</li>
      * </ol>
      *
@@ -232,25 +250,68 @@ public class JsonParseUtils {
     private String repairCommonJsonIssues(String json) {
         String repaired = json;
 
-        // 修复 1: JSON 数组/对象末尾的多余逗号 (如 [1,2,] → [1,2])
-        repaired = repaired.replaceAll(",\\s*(\\]|\\})", "$1");
-
-        // 修复 2: 移除 JSON 外的 BOM 和零宽字符
+        // 修复 1: 移除 JSON 外的 BOM 和零宽字符
         repaired = repaired.replaceAll("[\\uFEFF\\u200B]", "");
 
-        // 修复 3: 未引号字符串值 — LLM 偶尔遗漏 value 的双引号
+        // 修复 2: 字符串值内部未转义的双引号 — LLM 复述网页标题时常将原文 ASCII 引号原样带入
+        // 例如 "title": "兆芯：从"信创刚需"迈向"市场优选"" → 内部引号转义为 \"
+        // 须在修复 3（尾逗号删除会跨行合并闭合括号）和修复 4/5 之前执行，
+        // 避免行结构/引号错位干扰行锚定与基于引号的正则
+        repaired = escapeInnerQuotesInStringValues(repaired);
+
+        // 修复 3: JSON 数组/对象末尾的多余逗号 (如 [1,2,] → [1,2])
+        repaired = repaired.replaceAll(",\\s*(\\]|\\})", "$1");
+
+        // 修复 4: 未引号字符串值 — LLM 偶尔遗漏 value 的双引号
         // 例如 "title": 【氨】2026年... → "title": "【氨】2026年..."
         repaired = UNQUOTED_STRING_VALUE.matcher(repaired).replaceAll("$1\"$2\"$3");
 
-        // 修复 4: 缺失字段间逗号 — LLM 遗漏 JSON 对象字段之间的逗号
+        // 修复 5: 缺失字段间逗号 — LLM 遗漏 JSON 对象字段之间的逗号
         // 例如 "domain": "163.com" "title": "..." → "domain": "163.com", "title": "..."
         repaired = repaired.replaceAll("(\"[^\"]+\")\\s+(\"[^\"]+\"\\s*:)", "$1, $2");
 
-        // 修复 5: 截断的 JSON — LLM 输出超出 token 限制导致数组/对象未闭合
+        // 修复 6: 截断的 JSON — LLM 输出超出 token 限制导致数组/对象未闭合
         // 统计括号深度，自动补全缺失的 ] }
         repaired = closeUnclosedBrackets(repaired);
 
         return repaired;
+    }
+
+    /**
+     * 转义字符串值内部未转义的双引号（按行处理）.
+     * <p>
+     * LLM 复述搜索结果标题/内容时，常将原文中的 ASCII 双引号原样带入 JSON 字符串值，
+     * 导致 Jackson 报 "was expecting comma to separate Object entries"。
+     * 本方法按行匹配「可选键名 + 冒号 + "值"」结构（{@link #STRING_VALUE_LINE} 贪婪匹配
+     * 确保 $2 捕获值内全部内容），将值中未转义的 {@code "} 替换为 {@code \"}。
+     * </p>
+     * <p>
+     * 安全边界：
+     * <ul>
+     *   <li>仅处理单行完整字符串值；跨行/截断字符串交由 {@link #closeUnclosedBrackets} 兜底</li>
+     *   <li>行内含字段边界（{@link #FIELD_BOUNDARY_IN_LINE}，即一行多个字段）时跳过，
+     *       避免把合法的相邻字段合并成一个字符串</li>
+     * </ul>
+     * </p>
+     */
+    private String escapeInnerQuotesInStringValues(String json) {
+        String[] lines = json.split("\n", -1);
+        StringBuilder sb = new StringBuilder(json.length() + 16);
+        for (int i = 0; i < lines.length; i++) {
+            String line = lines[i];
+            Matcher m = STRING_VALUE_LINE.matcher(line);
+            if (m.matches() && m.group(2).contains("\"")
+                && !FIELD_BOUNDARY_IN_LINE.matcher(m.group(2)).find()) {
+                // 仅转义未转义的引号（(?<!\\)" → \"）
+                String escaped = m.group(2).replaceAll("(?<!\\\\)\"", "\\\\\"");
+                line = m.group(1) + escaped + m.group(3);
+            }
+            sb.append(line);
+            if (i < lines.length - 1) {
+                sb.append('\n');
+            }
+        }
+        return sb.toString();
     }
 
     /**

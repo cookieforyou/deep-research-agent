@@ -139,8 +139,8 @@ public class LongTermMemoryService {
             wordCount, citationCount, iterationCount, status, sourceIndex, findings);
 
         ResearchHistory saved = historyRepo.save(history);
-        log.info("[LongMem] 研究历史已记录: sessionId={}, words={}, status={}, findings={}",
-            sessionId, wordCount, status, findings != null ? findings.length() : 0);
+        log.info("[LongMem] 研究历史已记录: sessionId={}, words={}, status={}, citations={}, findingsJsonLength={}",
+            sessionId, wordCount, status, citationCount, findings != null ? findings.length() : 0);
         return saved;
     }
 

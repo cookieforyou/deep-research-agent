@@ -29,7 +29,8 @@ import java.util.List;
  * <ul>
  *   <li>搜索操作通过 {@link SearchTools#webSearch} (@Tool 注解) 暴露给 LLM</li>
  *   <li>LLM 通过 ToolCallingAdvisor 自主调用工具，无需手动编排搜索流程</li>
- *   <li>LLM 输出使用 {@code .entity()} 自动解析（Round 1 已完成）</li>
+ *   <li>LLM 输出通过 {@code .content()} + {@link JsonParseUtils#safeParse} 解析
+ *       （单次调用，解析失败时在同一份文本上修复，不重打 LLM）</li>
  *   <li>search() 方法签名不变，LangGraph4j 工作流无需修改</li>
  * </ul>
  */
@@ -89,7 +90,10 @@ public class WebScoutAgent {
         try {
             // LLM 自主决定调用 webSearch 工具的时机和参数
             // ToolCallingAdvisor 自动处理工具调用循环
-            EvidenceListWrapper result = chatClient.prompt()
+            // 注意：先取原始文本再用 safeParse 解析（内含 JSON 修复），而非 .entity()。
+            // .entity() 失败时原始 content 不可恢复，只能重打一次 LLM+全部搜索（成本/延迟翻倍），
+            // 且第二次输出大概率复现同类 JSON 缺陷。Prompt 模板已内置 JSON 格式说明。
+            String raw = chatClient.prompt()
                 .advisors(a -> a.param("agent", "WebScout").param("tier", "flash")
                     .param("skipPiiMask", true))
                 .system(systemPrompt)
@@ -98,44 +102,28 @@ public class WebScoutAgent {
                     .replace("{{searchPlanQueries}}", queriesContext))
                 //.tools(searchTools)  // searchTools 已在 AgentBundle 中通过 defaultTools 注册，这里无需注入
                 .call()
-                .entity(EvidenceListWrapper.class);
+                .content();
 
+            EvidenceListWrapper result = jsonUtils.safeParse(raw,
+                EvidenceListWrapper.class, FALLBACK, "WebScout");
             log.debug("[WebScout] LLM 解析完成: {} 条证据", result.evidences().size());
 
-            return result.evidences().stream()
-                .map(e -> new Evidence(
-                    e.sourceId(), SourceType.WEB, e.url(), e.title(), e.content(),
-                    e.score(), e.relevanceRank(), e.domain() != null ? e.domain() : "unknown",
-                    LocalDateTime.now()))
-                .toList();
+            return toEvidences(result);
 
         } catch (Exception ex) {
-            log.warn("[WebScout] .entity() 解析失败，尝试 JsonParseUtils 修复: {}", ex.getMessage());
-            try {
-                // Fallback: .content() + JsonParseUtils 修复（补齐缺失逗号/截断括号等 LLM 常见 JSON 缺陷）
-                String raw = chatClient.prompt()
-                    .advisors(a -> a.param("agent", "WebScout").param("tier", "flash")
-                        .param("skipPiiMask", true))
-                    .system(systemPrompt)
-                    .user(userPromptTemplate
-                        .replace("{{query}}", query)
-                        .replace("{{searchPlanQueries}}", queriesContext))
-                    .call()
-                    .content();
-                EvidenceListWrapper fallbackResult = jsonUtils.safeParse(raw,
-                    EvidenceListWrapper.class, FALLBACK, "WebScout");
-                log.info("[WebScout] JSON 修复后解析: {} 条证据", fallbackResult.evidences().size());
-                return fallbackResult.evidences().stream()
-                    .map(e -> new Evidence(
-                        e.sourceId(), SourceType.WEB, e.url(), e.title(), e.content(),
-                        e.score(), e.relevanceRank(), e.domain() != null ? e.domain() : "unknown",
-                        LocalDateTime.now()))
-                    .toList();
-            } catch (Exception fallbackError) {
-                log.error("[WebScout] JSON 修复也失败", fallbackError);
-                return List.of();
-            }
+            log.error("[WebScout] 网络检索失败", ex);
+            return List.of();
         }
+    }
+
+    /** 将 LLM 输出的简化 DTO 转换为领域模型 Evidence. */
+    private List<Evidence> toEvidences(EvidenceListWrapper wrapper) {
+        return wrapper.evidences().stream()
+            .map(e -> new Evidence(
+                e.sourceId(), SourceType.WEB, e.url(), e.title(), e.content(),
+                e.score(), e.relevanceRank(), e.domain() != null ? e.domain() : "unknown",
+                LocalDateTime.now()))
+            .toList();
     }
 
     /**
