@@ -17,6 +17,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.codec.ServerSentEvent;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Flux;
 
@@ -82,19 +84,23 @@ public class ResearchController {
      */
     @PostMapping
     public ResponseEntity<ResearchResponse> startResearch(
-        @Valid @RequestBody ResearchRequest request
+        @Valid @RequestBody ResearchRequest request,
+        @AuthenticationPrincipal Jwt jwt
     ) {
+        // === 身份解析：以 JWT claims 为准，请求体仅作兼容回退（可被客户端伪造） ===
+        ResearchRequest effective = resolveIdentity(request, jwt);
+
         log.info("[API] 收到研究请求: query='{}', userId={}",
-            piiMaskingService.tokenizeToString(request.query()), request.userId());
+            piiMaskingService.tokenizeToString(effective.query()), effective.userId());
 
         // === Prompt 注入检测（在任何 Agent/LLM 调用之前） ===
-        InjectionCheckResult checkResult = injectionChecker.check(request.query());
+        InjectionCheckResult checkResult = injectionChecker.check(effective.query());
         if (checkResult.detected()) {
             // 记录安全日志（不记录完整 query，防止日志注入）
-            String queryDigest = request.query().length() > 50
-                ? request.query().substring(0, 50) + "..."
-                : request.query();
-            securityLog.logInjectionBlocked(request.userId(), request.tenantId(),
+            String queryDigest = effective.query().length() > 50
+                ? effective.query().substring(0, 50) + "..."
+                : effective.query();
+            securityLog.logInjectionBlocked(effective.userId(), effective.tenantId(),
                 checkResult.reason(), queryDigest);
 
             // 抛出异常 → GlobalExceptionHandler 统一返回 400
@@ -103,8 +109,44 @@ public class ResearchController {
                 "请求被拒绝");
         }
 
-        ResearchResponse response = orchestrator.startResearch(request);
+        ResearchResponse response = orchestrator.startResearch(effective);
         return ResponseEntity.accepted().body(response);
+    }
+
+    /**
+     * 解析生效身份：JWT claims 优先，请求体兼容回退.
+     * <p>
+     * 多租户隔离依赖 tenantId，请求体中的值可被客户端任意伪造，
+     * 因此 {@code sub} / {@code tenant_id} claims 存在时强制以 JWT 为准；
+     * claims 缺失时回退到请求体值（兼容旧客户端/内部调用）并 WARN。
+     * JWT 与请求体声明不一致时记录 SECURITY 日志（越权尝试审计线索）。
+     * </p>
+     */
+    private ResearchRequest resolveIdentity(ResearchRequest request, Jwt jwt) {
+        String jwtUserId = jwt != null ? jwt.getClaimAsString("sub") : null;
+        String jwtTenantId = jwt != null ? jwt.getClaimAsString("tenant_id") : null;
+
+        String userId = request.userId();
+        if (jwtUserId != null && !jwtUserId.isBlank()) {
+            if (userId != null && !userId.isBlank() && !userId.equals(jwtUserId)) {
+                securityLog.logIdentityMismatch("userId", jwtUserId, userId);
+            }
+            userId = jwtUserId;
+        } else {
+            log.warn("[API] JWT 缺少 sub claim，回退到请求体 userId={}（兼容模式）", userId);
+        }
+
+        String tenantId = request.tenantId();
+        if (jwtTenantId != null && !jwtTenantId.isBlank()) {
+            if (tenantId != null && !tenantId.isBlank() && !tenantId.equals(jwtTenantId)) {
+                securityLog.logIdentityMismatch("tenantId", jwtTenantId, tenantId);
+            }
+            tenantId = jwtTenantId;
+        } else {
+            log.warn("[API] JWT 缺少 tenant_id claim，回退到请求体 tenantId={}（兼容模式）", tenantId);
+        }
+
+        return new ResearchRequest(request.query(), userId, tenantId, request.deepResearch());
     }
 
     /**

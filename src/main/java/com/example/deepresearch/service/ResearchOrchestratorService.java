@@ -1,6 +1,7 @@
 package com.example.deepresearch.service;
 
 import com.example.deepresearch.agent.eval.EvalAgent;
+import com.example.deepresearch.agent.profile.PreferenceExtractorAgent;
 import com.example.deepresearch.api.dto.ProgressEvent;
 import com.example.deepresearch.api.dto.ResearchRequest;
 import com.example.deepresearch.api.dto.ResearchResponse;
@@ -63,6 +64,7 @@ public class ResearchOrchestratorService {
     private final MemoryManager memoryManager;
     private final SemanticCacheService semanticCache;
     private final EvalAgent evalAgent;
+    private final PreferenceExtractorAgent preferenceExtractor;
     private final ObjectMapper objectMapper;
     private final DeepResearchProperties properties;
     private final PiiMaskingService piiMaskingService;
@@ -82,6 +84,7 @@ public class ResearchOrchestratorService {
         MemoryManager memoryManager,
         SemanticCacheService semanticCache,
         EvalAgent evalAgent,
+        PreferenceExtractorAgent preferenceExtractor,
         ObjectMapper objectMapper,
         DeepResearchProperties properties,
         PiiMaskingService piiMaskingService,
@@ -94,6 +97,7 @@ public class ResearchOrchestratorService {
         this.memoryManager = memoryManager;
         this.semanticCache = semanticCache;
         this.evalAgent = evalAgent;
+        this.preferenceExtractor = preferenceExtractor;
         this.objectMapper = objectMapper;
         this.properties = properties;
         this.piiMaskingService = piiMaskingService;
@@ -346,8 +350,9 @@ public class ResearchOrchestratorService {
             // 更新用户画像（兴趣、最近主题、研究计数）
             memoryManager.recordResearchCompletion(userId, tenantId, topic);
 
-            // 零证据降级判定：证据池为空说明报告仅基于模型自身知识（无引用支撑）
-            boolean degraded = state.evidencePool().isEmpty();
+            // 零证据降级判定：研究流程证据池为空说明报告仅基于模型自身知识（无引用支撑）
+            // direct 意图不走检索流程，evidencePool 天然为空，不属于降级
+            boolean degraded = state.isDeepResearch() && state.evidencePool().isEmpty();
             String status = degraded ? "DEGRADED" : "COMPLETED";
 
             // 持久化完整研究历史（含证据池 JSON + 研究结论 JSON）
@@ -380,9 +385,54 @@ public class ResearchOrchestratorService {
             // === 异步 LLM 评估（fire-and-forget，不阻塞主流程） ===
             triggerAsyncEval(sessionId, query, report, state);
 
+            // === 异步偏好提取（fire-and-forget，仅研究意图触发） ===
+            if (state.isDeepResearch()) {
+                triggerAsyncPreferenceExtraction(sessionId, state);
+            }
+
         } catch (Exception e) {
             log.warn("[Orchestrator] 记忆持久化失败（不影响主流程）: {}", e.getMessage());
         }
+    }
+
+    /**
+     * 异步触发偏好提取（fire-and-forget 模式）.
+     * <p>
+     * 研究完成后由 Flash 模型从本次查询 + 最近研究主题中提取稳定的用户偏好，
+     * 代码级合并写入 {@code user_profile.preferences}。
+     * 提取在独立虚拟线程中执行，失败仅 log.warn，不影响主流程。
+     * </p>
+     */
+    private void triggerAsyncPreferenceExtraction(String sessionId, ResearchState state) {
+        String userId = state.userId();
+        String tenantId = state.tenantId();
+        String query = state.query();
+
+        CompletableFuture.runAsync(() -> {
+            // 恢复跨虚拟线程的上下文
+            TenantContext.setCurrentUser(userId);
+            TenantContext.setCurrentTenant(tenantId);
+            try {
+                // 读取现有画像作为提取上下文（画像刚在 persistResearchMemory 中更新过）
+                var profile = memoryManager.getUserProfile(userId, tenantId);
+                String recentTopics = profile.map(p -> p.getRecentTopics()).orElse("[]");
+                String existingPrefs = profile.map(p -> p.getPreferences()).orElse("{}");
+
+                Map<String, String> newPrefs = preferenceExtractor.extract(
+                    query, recentTopics, existingPrefs);
+
+                if (!newPrefs.isEmpty()) {
+                    memoryManager.mergeUserPreferences(userId, tenantId, newPrefs);
+                    log.info("[Orchestrator] 偏好提取完成: sessionId={}, 新增/更新 {} 项偏好",
+                        sessionId, newPrefs.size());
+                } else {
+                    log.debug("[Orchestrator] 偏好提取无新信号: sessionId={}", sessionId);
+                }
+            } catch (Exception e) {
+                log.warn("[Orchestrator] 偏好提取失败（不影响主流程）: sessionId={}, error={}",
+                    sessionId, e.getMessage());
+            }
+        }, virtualThreadExecutor);
     }
 
     /**

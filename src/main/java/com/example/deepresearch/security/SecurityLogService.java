@@ -42,6 +42,9 @@ public class SecurityLogService {
     /** 输出安全护栏拦截事件标记 */
     static final Marker OUTPUT_GUARD_MARKER = MarkerFactory.getMarker("OUTPUT_GUARDRAIL");
 
+    /** 身份不一致事件标记（JWT claims 与请求体声明不符） */
+    static final Marker IDENTITY_MARKER = MarkerFactory.getMarker("IDENTITY_MISMATCH");
+
     /**
      * 记录 PII 标记化事件.
      *
@@ -82,5 +85,23 @@ public class SecurityLogService {
         SECURITY_LOG.warn(OUTPUT_GUARD_MARKER,
             "[OUTPUT_GUARD] LLM 输出被护栏拦截: userId={}, matchedPattern='{}'",
             userId, matchedPattern);
+    }
+
+    /**
+     * 记录身份声明不一致事件.
+     * <p>
+     * JWT claims 中的身份与请求体声明的身份不一致时记录，
+     * 以 JWT 为准（请求体值可被客户端伪造）。持续出现说明客户端
+     * 存在越权尝试或集成配置错误，应触发安全审计。
+     * </p>
+     *
+     * @param field     不一致的字段名（userId / tenantId）
+     * @param jwtValue  JWT claims 中的值（生效值）
+     * @param bodyValue 请求体声明的值（被忽略值）
+     */
+    public void logIdentityMismatch(String field, String jwtValue, String bodyValue) {
+        SECURITY_LOG.warn(IDENTITY_MARKER,
+            "[IDENTITY] 请求体身份声明与 JWT 不一致: field={}, jwt='{}', body='{}' — 以 JWT 为准",
+            field, jwtValue, bodyValue);
     }
 }

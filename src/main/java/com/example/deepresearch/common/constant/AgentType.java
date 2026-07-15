@@ -27,7 +27,10 @@ public enum AgentType {
     WRITER("Writer", "pro"),
 
     /** 评估器 (Flash, T=0.0) */
-    EVAL("Eval", "flash");
+    EVAL("Eval", "flash"),
+
+    /** 偏好提取器 (Flash, T=0.1) */
+    PREFERENCE_EXTRACTOR("PreferenceExtractor", "flash");
 
     private final String displayName;
     private final String modelTier;  // "pro" or "flash"

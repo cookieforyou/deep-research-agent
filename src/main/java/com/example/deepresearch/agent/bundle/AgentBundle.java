@@ -226,4 +226,16 @@ public class AgentBundle {
             .build();
     }
 
+    /** PreferenceExtractor — 用户偏好提取 (Flash, T=0.1，提取需保守确定；输出极短) */
+    @Bean("preferenceExtractorClient")
+    public ChatClient preferenceExtractorClient(ChatModel chatModel) {
+        log.info("注册 PreferenceExtractor ChatClient (Flash, T=0.1)");
+        return createBuilder(chatModel)
+            .defaultOptions(DeepSeekChatOptions.builder()
+                .model(DeepSeekApi.ChatModel.DEEPSEEK_V4_FLASH)
+                .temperature(0.1)
+                .maxTokens(512))
+            .build();
+    }
+
 }

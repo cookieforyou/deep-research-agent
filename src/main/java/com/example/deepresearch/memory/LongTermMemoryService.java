@@ -32,6 +32,9 @@ public class LongTermMemoryService {
 
     private static final Logger log = LoggerFactory.getLogger(LongTermMemoryService.class);
 
+    /** 偏好 key 数量上限（防止 LLM 异常输出撑爆画像） */
+    private static final int MAX_PREFERENCE_KEYS = 20;
+
     private final UserProfileRepository userProfileRepo;
     private final ResearchHistoryRepository historyRepo;
     private final ObjectMapper objectMapper;
@@ -120,6 +123,46 @@ public class LongTermMemoryService {
         return interests.stream()
             .map(piiMaskingService::tokenizeToString)
             .toList();
+    }
+
+    /**
+     * 合并用户偏好（研究完成后由 PreferenceExtractorAgent 异步调用）.
+     * <p>
+     * 代码级 merge 语义：新偏好覆盖同名 key，未涉及的已有 key 保留。
+     * 偏好总数上限 {@value MAX_PREFERENCE_KEYS}，超出时拒绝新增（保留已有）。
+     * </p>
+     *
+     * @param userId   用户 ID
+     * @param tenantId 租户 ID
+     * @param newPrefs 新增/变化的偏好键值对（空 Map 时直接返回）
+     */
+    @Transactional
+    public void mergeUserPreferences(String userId, String tenantId,
+                                      java.util.Map<String, String> newPrefs) {
+        if (newPrefs == null || newPrefs.isEmpty()) {
+            return;
+        }
+        UserProfile profile = userProfileRepo
+            .findByUserIdAndTenantId(userId, tenantId)
+            .orElseGet(() -> {
+                log.info("[LongMem] 创建新用户画像: userId={}, tenantId={}", userId, tenantId);
+                return new UserProfile(userId, tenantId);
+            });
+
+        java.util.Map<String, Object> merged = parseJsonMap(profile.getPreferences());
+        for (var entry : newPrefs.entrySet()) {
+            if (merged.containsKey(entry.getKey()) || merged.size() < MAX_PREFERENCE_KEYS) {
+                merged.put(entry.getKey(), entry.getValue());
+            } else {
+                log.warn("[LongMem] 偏好数量达上限 {}，忽略新增 key: {}",
+                    MAX_PREFERENCE_KEYS, entry.getKey());
+            }
+        }
+
+        profile.setPreferences(toJson(merged));
+        userProfileRepo.save(profile);
+        log.info("[LongMem] 用户偏好已合并: userId={}, 新增/更新 {} 项, 当前共 {} 项",
+            userId, newPrefs.size(), merged.size());
     }
 
     // =========================== 研究历史 ===========================
@@ -211,6 +254,19 @@ public class LongTermMemoryService {
         } catch (JsonProcessingException e) {
             log.warn("[LongMem] JSON 数组解析失败: {}", json);
             return new ArrayList<>();
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private java.util.Map<String, Object> parseJsonMap(String json) {
+        if (json == null || json.isBlank() || "{}".equals(json)) {
+            return new java.util.LinkedHashMap<>();
+        }
+        try {
+            return objectMapper.readValue(json, java.util.LinkedHashMap.class);
+        } catch (JsonProcessingException e) {
+            log.warn("[LongMem] JSON Map 解析失败: {}", json);
+            return new java.util.LinkedHashMap<>();
         }
     }
 

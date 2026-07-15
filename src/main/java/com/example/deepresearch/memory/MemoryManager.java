@@ -173,6 +173,18 @@ public class MemoryManager {
         longTermMemory.updateEvalScores(sessionId, evalScoresJson);
     }
 
+    /**
+     * 合并用户偏好到长期画像（代理到 LongTermMemoryService）.
+     *
+     * @param userId   用户 ID
+     * @param tenantId 租户 ID
+     * @param newPrefs 新增/变化的偏好键值对
+     */
+    public void mergeUserPreferences(String userId, String tenantId,
+                                      java.util.Map<String, String> newPrefs) {
+        longTermMemory.mergeUserPreferences(userId, tenantId, newPrefs);
+    }
+
     public Optional<ResearchHistory> getResearchBySessionId(String sessionId) {
         return longTermMemory.getResearchBySessionId(sessionId);
     }
