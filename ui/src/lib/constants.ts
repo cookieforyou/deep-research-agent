@@ -36,21 +36,21 @@ export const STAGE_ICONS: Record<ResearchStage, string> = {
   ERROR: 'XCircle',
 };
 
-/** 研究阶段 → Timeline 节点颜色 (hsl) */
+/** 研究阶段 → Timeline 节点颜色（引用 CSS 变量，自动适配亮/暗主题） */
 export const STAGE_COLORS: Record<ResearchStage, string> = {
-  INTENT_ROUTING: 'hsl(220, 90%, 56%)',
-  PLANNING: 'hsl(280, 65%, 50%)',
-  WEB_SEARCHING: 'hsl(170, 80%, 40%)',
-  LOCAL_SEARCHING: 'hsl(170, 80%, 40%)',
-  JUDGING: 'hsl(45, 90%, 50%)',
-  ANALYZING: 'hsl(20, 90%, 50%)',
-  REFLECTING: 'hsl(350, 75%, 50%)',
-  WRITING: 'hsl(350, 75%, 50%)',
-  COMPLETED: 'hsl(140, 50%, 45%)',
-  CACHE_HIT: 'hsl(140, 50%, 45%)',
-  MODEL_FALLBACK: 'hsl(45, 90%, 50%)',
-  SEARCH_FALLBACK: 'hsl(45, 90%, 50%)',
-  ERROR: 'hsl(0, 85%, 55%)',
+  INTENT_ROUTING: 'var(--workflow-intent)',
+  PLANNING: 'var(--workflow-plan)',
+  WEB_SEARCHING: 'var(--workflow-search)',
+  LOCAL_SEARCHING: 'var(--workflow-search)',
+  JUDGING: 'var(--workflow-filter)',
+  ANALYZING: 'var(--workflow-analyze)',
+  REFLECTING: 'var(--workflow-write)',
+  WRITING: 'var(--workflow-write)',
+  COMPLETED: 'var(--workflow-completed)',
+  CACHE_HIT: 'var(--workflow-completed)',
+  MODEL_FALLBACK: 'var(--workflow-filter)',
+  SEARCH_FALLBACK: 'var(--workflow-filter)',
+  ERROR: 'var(--workflow-error)',
 };
 
 /** 工作流节点顺序（用于 Timeline 从上到下排列） */

@@ -35,10 +35,12 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           >
             Prompt 模板
           </Link>
-          <span className="block rounded-md px-3 py-2 text-sm text-muted-foreground">
+          <Link
+            href="/admin/users"
+            className="block rounded-md px-3 py-2 text-sm hover:bg-accent hover:text-accent-foreground"
+          >
             用户管理
-            <span className="ml-2 text-xs bg-muted px-1.5 py-0.5 rounded">预留</span>
-          </span>
+          </Link>
         </nav>
       </aside>
 

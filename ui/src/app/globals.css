@@ -114,6 +114,40 @@
 @theme inline {
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+
+  /* 工作流阶段颜色（设计文档 §12.1） */
+  --color-workflow-intent: var(--workflow-intent);
+  --color-workflow-plan: var(--workflow-plan);
+  --color-workflow-search: var(--workflow-search);
+  --color-workflow-filter: var(--workflow-filter);
+  --color-workflow-analyze: var(--workflow-analyze);
+  --color-workflow-write: var(--workflow-write);
+  --color-workflow-completed: var(--workflow-completed);
+  --color-workflow-error: var(--workflow-error);
+}
+
+/* 工作流颜色 — 亮色主题 */
+:root {
+  --workflow-intent: hsl(220, 90%, 56%);
+  --workflow-plan: hsl(280, 65%, 50%);
+  --workflow-search: hsl(170, 80%, 40%);
+  --workflow-filter: hsl(45, 90%, 50%);
+  --workflow-analyze: hsl(20, 90%, 50%);
+  --workflow-write: hsl(350, 75%, 50%);
+  --workflow-completed: hsl(140, 50%, 45%);
+  --workflow-error: hsl(0, 85%, 55%);
+}
+
+/* 工作流颜色 — 暗色主题（适当提亮以保证对比度） */
+.dark {
+  --workflow-intent: hsl(220, 90%, 68%);
+  --workflow-plan: hsl(280, 60%, 62%);
+  --workflow-search: hsl(170, 70%, 52%);
+  --workflow-filter: hsl(45, 85%, 58%);
+  --workflow-analyze: hsl(20, 85%, 60%);
+  --workflow-write: hsl(350, 70%, 60%);
+  --workflow-completed: hsl(140, 45%, 55%);
+  --workflow-error: hsl(0, 80%, 60%);
 }
 
 @layer base {
