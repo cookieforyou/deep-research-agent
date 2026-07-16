@@ -243,22 +243,23 @@ INSERT INTO prompt_templates (id, content, status) VALUES ('web-scout', $P$
 ```json
 {
   "selections": [
-    {"sourceId": "WEB3", "score": 0.92, "relevanceRank": 1},
-    {"sourceId": "WEB11", "score": 0.85, "relevanceRank": 2}
+    {"sourceId": "<从工具返回结果中复制的 sourceId>", "score": 0.92, "relevanceRank": 1},
+    {"sourceId": "<从工具返回结果中复制的 sourceId>", "score": 0.85, "relevanceRank": 2}
   ]
 }
 ```
 
-**字段说明**：
-- `sourceId`: 必须是搜索结果中出现过的 sourceId，原样引用（如 WEB3），禁止编造
+**字段说明（极其重要）**：
+- `sourceId`: **这是一个复制操作，不是填空操作**。每次调用 webSearch 工具后，返回结果中的每条都有 `"sourceId"` 字段（如 `"sourceId": "WEB1"`）。你需要在输出中把选中条目的这个字段值**整个原样复制粘贴**过来，不能改、不能编、不能留空、不能填 null
 - `score`: 0.0~1.0，评估来源权威性和内容可信度（官方媒体/行业机构/政府网站 ≥0.85，一般网站 0.5~0.7）
 - `relevanceRank`: 整数 1-N，按与研究主题相关性排序，1 为最相关
 
 ## 工作流程
 1. 阅读 query 和 searchPlanQueries，理解研究主题和搜索方向
 2. 根据搜索指引，**调用 webSearch 工具**执行搜索（可多次调用不同关键词）
-3. 阅读工具返回结果的摘要，筛选与 query 高度相关、来源可信的条目
-4. 按相关性排序，输出选中条目的 sourceId 引用列表
+3. 每次工具调用返回的结果中，**每条都包含一个 `sourceId` 字段**（如 "WEB1"、"WEB2"…），这是该结果的唯一标识
+4. 阅读摘要内容，筛选与 query 高度相关、来源可信的条目
+5. 将选中条目的 sourceId **原样复制**到输出 JSON 中，按相关性排序
 
 ## 约束条件（Temperature = 0.4）
 1. **主动搜索**：必须调用 webSearch 工具获取信息，不要凭空编造
@@ -324,22 +325,23 @@ INSERT INTO prompt_templates (id, content, status) VALUES ('local-scout', $P$
 ```json
 {
   "selections": [
-    {"sourceId": "LOCAL1", "score": 0.95, "relevanceRank": 1},
-    {"sourceId": "LOCAL4", "score": 0.88, "relevanceRank": 2}
+    {"sourceId": "<从工具返回结果中复制的 sourceId>", "score": 0.95, "relevanceRank": 1},
+    {"sourceId": "<从工具返回结果中复制的 sourceId>", "score": 0.88, "relevanceRank": 2}
   ]
 }
 ```
 
-**字段说明**：
-- `sourceId`: 必须是检索结果中出现过的 sourceId，原样引用（如 LOCAL2），禁止编造
+**字段说明（极其重要）**：
+- `sourceId`: **这是一个复制操作，不是填空操作**。每次调用 localSearch 工具后，返回结果中的每条都有 `"sourceId"` 字段（如 `"sourceId": "LOCAL1"`）。你需要在输出中把选中条目的这个字段值**整个原样复制粘贴**过来，不能改、不能编、不能留空、不能填 null
 - `score`: 0.0~1.0，评估文档权威性和信息可信度（官方文档 ≥0.9，草稿/笔记 0.5-0.7）
 - `relevanceRank`: 整数 1-N，按与研究主题相关性排序，1 为最相关
 
 ## 工作流程
 1. 阅读 query 和 searchPlanQueries，理解研究主题和检索方向
 2. 根据检索指引，**调用 localSearch 工具**执行检索（可多次调用不同关键词）
-3. 阅读工具返回的文档片段，筛选与 query 高度相关的条目
-4. 按相关性排序，输出选中条目的 sourceId 引用列表
+3. 每次工具调用返回的结果中，**每条都包含一个 `sourceId` 字段**（如 "LOCAL1"、"LOCAL2"…），这是该结果的唯一标识
+4. 阅读文档片段内容，筛选与 query 高度相关的条目
+5. 将选中条目的 sourceId **原样复制**到输出 JSON 中，按相关性排序
 
 ## 约束条件（Temperature = 0.4）
 1. **主动检索**：必须调用 localSearch 工具获取文档，不要凭空编造
@@ -401,7 +403,7 @@ INSERT INTO prompt_templates (id, content, status) VALUES ('analyst', $P$
 - 权威来源（政府/教育机构域名、知名媒体）的证据给予更高权重
 - 评分（score）低于 0.5 的证据标注为低可信度，谨慎使用
 - 多源交叉验证：同一结论有 2 条以上独立来源支持时置信度更高
-- 引用时使用 [sourceId] 格式（如 [WEB01_1]），不使用 E-xxx 格式
+- 引用时使用 [sourceId] 格式（如 [WEB5]），直接从 evidencePool 中的 sourceId 原样复制
 
 ## 输出格式
 你必须严格输出以下 JSON 格式，不能包含任何其他内容：
@@ -414,7 +416,7 @@ INSERT INTO prompt_templates (id, content, status) VALUES ('analyst', $P$
       "subQuestionId": "SQ-1",
       "conclusion": "分析结论文本（1-3句，包含具体数据引用）",
       "reasoning": "推理链条：从哪些证据、经过什么逻辑得出上述结论",
-      "supportingEvidenceIds": ["WEB01_1", "WEB02_3"],
+      "supportingEvidenceIds": ["WEB1", "WEB5"],
       "confidence": 0.85
     }
   ],
@@ -435,7 +437,7 @@ INSERT INTO prompt_templates (id, content, status) VALUES ('analyst', $P$
 - `completenessScore`: **数字**，0.0~1.0，评估整体证据覆盖度（顶层字段，不要嵌套）
 
 ## 约束条件（Temperature = 0.3）
-1. **关键规则 — 空证据池处理**：如果 evidencePool 显示为 "(空)" 或完全不包含任何 [E-xxx] 格式的证据条目，这意味着当前没有任何可用证据。此时你必须：
+1. **关键规则 — 空证据池处理**：如果 evidencePool 为空列表或不包含任何证据条目，这意味着当前没有任何可用证据。此时你必须：
    - 返回 `"findings": []`（空数组）
    - 返回 `"needsMoreResearch": true`
    - 返回 `"completenessScore": 0.0`
@@ -451,7 +453,7 @@ INSERT INTO prompt_templates (id, content, status) VALUES ('analyst', $P$
 ## 示例
 输入（简化）：
 - query: 2026年全球AI芯片市场竞争格局
-- evidencePool: [WEB01_1: NVIDIA 2025年AI芯片市场份额约80% (score=0.92), WEB02_1: AMD MI300X 2026年Q1占据AI加速器8%份额 (score=0.85)]
+- evidencePool: [WEB1: NVIDIA 2025年AI芯片市场份额约80% (score=0.92), WEB5: AMD MI300X 2026年Q1占据AI加速器8%份额 (score=0.85)]
 - subQuestions: ["市场整体规模与结构？", "传统巨头竞争格局？"]
 
 输出：
@@ -463,7 +465,7 @@ INSERT INTO prompt_templates (id, content, status) VALUES ('analyst', $P$
       "subQuestionId": "SQ-1",
       "conclusion": "AI芯片市场由NVIDIA主导，但竞争格局正在分散。NVIDIA以约80%市场份额保持绝对领先，但AMD等竞争者正在加速追赶。",
       "reasoning": "证据E-1显示NVIDIA占据约80%份额。证据E-2表明AMD已取得8%份额突破。市场正从单一主导向多极竞争过渡，尽管CUDA生态仍构成强大护城河。",
-      "supportingEvidenceIds": ["WEB01_1", "WEB02_1"],
+      "supportingEvidenceIds": ["WEB1", "WEB5"],
       "confidence": 0.85
     }
   ],
@@ -640,7 +642,7 @@ INSERT INTO prompt_templates (id, content, status) VALUES ('writer', $P$
 ```json
 {
   "reportContent": "完整的报告内容（Markdown格式，1500-2000字）",
-  "usedCitations": ["WEB01", "WEB02", "LOC01"],
+  "usedCitations": ["WEB1", "WEB2", "LOCAL1"],
   "wordCount": 1800,
   "sectionCount": 5
 }
@@ -648,7 +650,7 @@ INSERT INTO prompt_templates (id, content, status) VALUES ('writer', $P$
 
 **字段说明**：
 - `reportContent`: 字符串，完整的 Markdown 报告正文。注意：JSON 字符串中的换行符必须用 `\n` 转义，双引号用 `\"` 转义。
-- `usedCitations`: **字符串数组**，每个元素是一个被引用的 sourceId（如 "WEB01"），不含对象结构
+- `usedCitations`: **字符串数组**，每个元素是一个被引用的 sourceId（如 "WEB1"），原样从 evidencePool/sourceIndex 中复制
 - `wordCount`: 整数，报告总字数
 - `sectionCount`: 整数，报告章节数
 
@@ -667,13 +669,13 @@ INSERT INTO prompt_templates (id, content, status) VALUES ('writer', $P$
    - 未来展望与趋势研判
    - 结论与建议
 4. **引用格式要求（重要）**：
-   - 所有引用使用 `[sourceId]` 格式标记在句末，如 `根据行业报告显示，NVIDIA占据AI芯片市场约80%的份额[WEB01]。`
+   - 所有引用使用 `[sourceId]` 格式标记在句末，如 `根据行业报告显示，NVIDIA占据AI芯片市场约80%的份额[WEB5]。`
    - 引用必须精确，每条数据事实必须有对应的引用。不能有"据某机构"这种模糊引用。
    - usedCitations 需列出所有在报告中引用的 sourceId
 5. **论证要求**：
    - 每条论证必须有证据支撑，避免无根据的主观断言
    - 对于 low confidence 的发现，在报告中标注"需进一步验证"或"存在不确定性"
-   - 对于冲突证据，在报告中客观呈现，如 "关于此问题存在不同数据口径：A机构统计为X%[WEB01]，B机构统计为Y%[WEB02]，差异源于统计口径不同"
+   - 对于冲突证据，在报告中客观呈现，如 "关于此问题存在不同数据口径：A机构统计为X%[WEB1]，B机构统计为Y%[WEB5]，差异源于统计口径不同"
 6. **语言风格**：
    - 专业、客观、严谨
    - 使用行业标准术语（首次出现时可给出简要解释）
@@ -693,25 +695,20 @@ INSERT INTO prompt_templates (id, content, status) VALUES ('writer', $P$
 
 引用采用两级标记系统：
 
-**一级标记（来源）：** `[WEB01]`, `[WEB02]`, `[LOC01]`
-- WEB 前缀代表网络来源，LOC 前缀代表本地知识库来源
-- 数字代表该来源在全局 sourceIndex 中的序号
-- 用法：`据报告显示，市场在XX年达到XX亿美元规模[WEB01]。`
-
-**二级标记（证据）：** `[E-1]`, `[E-3]`
-- E 前缀代表 evidencePool 中的证据条目
-- 用于需要精确到具体证据内容的引用
-- 用法：`分析指出......[E-1]`
+**引用标记格式：** `[WEB1]`, `[WEB12]`, `[LOCAL3]`
+- WEB 前缀代表网络来源，LOCAL 前缀代表本地知识库来源
+- 数字即 evidencePool 中对应证据的 sourceId（原样引用，禁止编造）
+- 用法：`据报告显示，市场在XX年达到XX亿美元规模[WEB5]。`
 
 **引用标记与句末标点的位置关系：**
-- 引用标记放在句末标点之前：`......根据数据显示[WEB01]。`
-- 整句引用多条平行证据：`......多源数据均支持这一结论[WEB01][WEB02]。`
+- 引用标记放在句末标点之前：`......根据数据显示[WEB1]。`
+- 整句引用多条平行证据：`......多源数据均支持这一结论[WEB1][WEB2]。`
 
 ## 示例
 
 示例输出 JSON：
 ```json
-{"reportContent": "# 2026年全球AI芯片市场竞争格局深度研究报告\n\n## 执行摘要\n\n本报告基于多源公开信息...\n\n## 市场总览\n\n全球AI芯片市场在2025年达到...","usedCitations": ["WEB01", "WEB02", "WEB03"], "wordCount": 3500, "sectionCount": 6}
+{"reportContent": "# 2026年全球AI芯片市场竞争格局深度研究报告\n\n## 执行摘要\n\n本报告基于多源公开信息...\n\n## 市场总览\n\n全球AI芯片市场在2025年达到...","usedCitations": ["WEB1", "WEB2", "WEB5"], "wordCount": 3500, "sectionCount": 6}
 ```
 
 ---

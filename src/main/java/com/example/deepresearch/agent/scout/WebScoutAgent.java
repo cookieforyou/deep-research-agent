@@ -123,6 +123,13 @@ public class WebScoutAgent {
             ? jsonUtils.safeParse(raw, SelectionListWrapper.class, FALLBACK, "WebScout")
             : FALLBACK;
 
+        // 诊断：LLM 输出了 selections 但 sourceId 为 null 时，打印原始输出定位根因
+        if (result.selections() != null && !result.selections().isEmpty()
+            && result.selections().stream().anyMatch(s -> s.sourceId() == null)) {
+            log.warn("[WebScout] LLM 输出的 selections 包含 null sourceId，原始输出前500字符: {}",
+                raw != null ? raw.substring(0, Math.min(500, raw.length())) : "null");
+        }
+
         List<Evidence> evidences = toEvidences(result.selections(), collected);
         if (evidences.isEmpty() && !collected.isEmpty()) {
             log.warn("[WebScout] LLM 未返回有效选择，降级采用全部收集结果: {} 条",

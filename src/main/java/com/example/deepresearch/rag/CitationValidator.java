@@ -1,36 +1,34 @@
 package com.example.deepresearch.rag;
 
+import com.example.deepresearch.common.model.Evidence;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 /**
- * 引用合法性校验器 — 自动剔除 LLM 幻觉产生的虚假引用.
+ * 引用合法性校验器 — 自动剔除 LLM 幻觉产生的虚假引用，渲染带链接的参考资料列表.
  * <p>
- * 大模型经常产生不存在的引用 ID（如 {@code [WEB99_1-1]} 但根本没有 WEB99）。
+ * 大模型经常产生不存在的引用 ID（如 {@code [WEB99]} 但根本没有 WEB99）。
  * 本校验器在 Writer 输出后执行，提取所有引用标记，与合法的 sourceIndex 比对，
- * <strong>自动移除非法引用</strong>，并在文末渲染真实的参考资料列表。
+ * <strong>自动移除非法引用</strong>，并在文末渲染真实的参考资料列表（含标题+可点击链接）。
  * </p>
  *
  * <h3>工作流程</h3>
  * <ol>
- *   <li>正则提取报告中的所有引用标记（格式: WEB/LOC + 数字序列）</li>
- *   <li>与 sourceIndex 中的合法 ID 集对比</li>
- *   <li>移除非法引用（仅移除标记，保留周围文字）</li>
- *   <li>可选：在文末追加真实参考资料章节</li>
+ *   <li>正则提取报告中的所有引用标记</li>
+ *   <li>与合法 ID 集对比，移除非法引用</li>
+ *   <li>从 evidencePool 查找对应的标题和 URL，渲染参考资料列表</li>
  * </ol>
  *
  * <h3>引用标记格式</h3>
  * <ul>
- *   <li>网络证据: {@code [WEB01_1]} 或 {@code [WEB01_1-1]}</li>
- *   <li>本地证据: {@code [LOCAL01_1]} 或 {@code [LOCAL01_1-1]}</li>
- *   <li>正则: {@code \[(WEB|LOCAL)\d+_\d+(-\d+)?\]}</li>
+ *   <li>新版: {@code [WEB1]}, {@code [LOCAL3]} — 工具层分配的 sourceId</li>
+ *   <li>旧版兼容: {@code [WEB01_1]}, {@code [WEB01_1-1]} — 历史数据</li>
  * </ul>
  */
 @Component
@@ -38,9 +36,9 @@ public class CitationValidator {
 
     private static final Logger log = LoggerFactory.getLogger(CitationValidator.class);
 
-    /** 匹配引用标记: [WEB01_1], [WEB01_1-1], [LOCAL01_1], [LOCAL01_1-1] */
+    /** 匹配引用标记：新版 [WEB1]/[LOCAL3]，兼容旧版 [WEB01_1]/[WEB01_1-1] */
     private static final Pattern CITATION_PATTERN = Pattern.compile(
-        "\\[(WEB|LOCAL)\\d+_\\d+(?:-\\d+)?\\]");
+        "\\[(WEB|LOCAL)\\d+(?:_\\d+(?:-\\d+)?)?\\]");
 
     /**
      * 校验报告中的引用合法性.
@@ -94,25 +92,95 @@ public class CitationValidator {
     }
 
     /**
-     * 在报告末尾追加合法的参考资料列表.
+     * 将报告正文中的引用标记转换为可点击的 Markdown 链接.
      * <p>
-     * 可选功能：将 sourceIndex 中的每条证据格式化为参考文献条目。
+     * 从 evidencePool 按 sourceId 查找 URL，将 {@code [WEB12]} 替换为
+     * {@code [WEB12](url)}。sourceId 在 evidencePool 中不存在时保留原标记。
      * </p>
      *
      * @param reportContent 报告正文
-     * @param sourceIndex   合法来源索引
-     * @return 追加了参考文献的报告
+     * @param evidencePool  完整证据池（用于查找 URL）
+     * @return 正文引用可点击的报告
      */
-    public String appendReferenceList(String reportContent, List<String> sourceIndex) {
-        if (sourceIndex == null || sourceIndex.isEmpty()) {
+    public String linkifyBodyCitations(String reportContent, List<Evidence> evidencePool) {
+        if (reportContent == null || evidencePool == null || evidencePool.isEmpty()) {
+            return reportContent;
+        }
+
+        Map<String, String> urlLookup = evidencePool.stream()
+            .filter(e -> e.url() != null && !e.url().isBlank())
+            .collect(Collectors.toMap(Evidence::sourceId, Evidence::url, (a, b) -> a));
+
+        if (urlLookup.isEmpty()) {
+            return reportContent;
+        }
+
+        // 使用 Matcher.appendReplacement 逐次替换，避免多次 replace 产生的 O(n²)
+        Matcher matcher = CITATION_PATTERN.matcher(reportContent);
+        StringBuilder sb = new StringBuilder(reportContent.length() + 1024);
+        while (matcher.find()) {
+            String marker = matcher.group();            // e.g. "[WEB12]"
+            String sourceId = marker.substring(1, marker.length() - 1); // e.g. "WEB12"
+            String url = urlLookup.get(sourceId);
+            if (url != null) {
+                matcher.appendReplacement(sb,
+                    Matcher.quoteReplacement("[" + marker + "](" + url + ")"));
+            } else {
+                matcher.appendReplacement(sb, Matcher.quoteReplacement(marker));
+            }
+        }
+        matcher.appendTail(sb);
+        return sb.toString();
+    }
+
+    /**
+     * 在报告末尾追加真实的参考资料列表（含标题 + 可点击链接）.
+     * <p>
+     * 从 evidencePool 按 sourceId 查找对应的标题和 URL，
+     * 渲染为 Markdown 链接格式。仅列出报告中实际引用的来源。
+     * </p>
+     *
+     * @param reportContent 报告正文
+     * @param evidencePool  完整证据池（含 title/url/domain）
+     * @return 追加了参考资料列表的报告
+     */
+    public String appendReferenceList(String reportContent, List<Evidence> evidencePool) {
+        if (evidencePool == null || evidencePool.isEmpty()) {
+            return reportContent;
+        }
+
+        // 收集报告中实际引用的 sourceId（去重保序）
+        Set<String> citedIds = new LinkedHashSet<>();
+        Matcher matcher = CITATION_PATTERN.matcher(reportContent);
+        while (matcher.find()) {
+            citedIds.add(matcher.group().replace("[", "").replace("]", ""));
+        }
+
+        // 从证据池按 sourceId 查找对应 Evidence
+        Map<String, Evidence> lookup = evidencePool.stream()
+            .collect(Collectors.toMap(Evidence::sourceId, e -> e, (a, b) -> a, LinkedHashMap::new));
+
+        // 按引用出现顺序渲染
+        List<Evidence> cited = citedIds.stream()
+            .map(lookup::get)
+            .filter(Objects::nonNull)
+            .toList();
+
+        if (cited.isEmpty()) {
             return reportContent;
         }
 
         StringBuilder sb = new StringBuilder(reportContent);
         sb.append("\n\n---\n\n## 参考资料\n\n");
 
-        for (int i = 0; i < sourceIndex.size(); i++) {
-            sb.append(String.format("%d. `[%s]`\n", i + 1, sourceIndex.get(i)));
+        for (int i = 0; i < cited.size(); i++) {
+            Evidence e = cited.get(i);
+            String title = e.title() != null && !e.title().isBlank()
+                ? e.title() : e.sourceId();
+            String url = e.url() != null && !e.url().isBlank()
+                ? e.url() : "#";
+            sb.append(String.format("%d. [%s](%s) — *%s*\n",
+                i + 1, title, url, e.domain() != null ? e.domain() : ""));
         }
 
         return sb.toString();

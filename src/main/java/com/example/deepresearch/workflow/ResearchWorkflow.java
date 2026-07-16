@@ -552,9 +552,13 @@ public class ResearchWorkflow {
                     CitationValidator.ValidationResult validation =
                         citationValidator.validate(result.reportContent(), state.sourceIndex());
 
-                    // 步骤 3: 追加参考资料列表
+                    // 步骤 3: 正文引用标记 → 可点击链接（[WEB12] → [WEB12](url)）
+                    String linkedReport = citationValidator.linkifyBodyCitations(
+                        validation.cleanedReport(), state.evidencePool());
+
+                    // 步骤 4: 追加参考资料列表（从 evidencePool 渲染标题+可点击链接）
                     String finalReport = citationValidator.appendReferenceList(
-                        validation.cleanedReport(), state.sourceIndex());
+                        linkedReport, state.evidencePool());
 
                     // 零证据降级：报告头部注入免责声明，避免用户误信无证据支撑的内容
                     if (state.evidencePool().isEmpty()) {

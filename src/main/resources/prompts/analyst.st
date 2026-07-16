@@ -16,7 +16,7 @@
 - 权威来源（政府/教育机构域名、知名媒体）的证据给予更高权重
 - 评分（score）低于 0.5 的证据标注为低可信度，谨慎使用
 - 多源交叉验证：同一结论有 2 条以上独立来源支持时置信度更高
-- 引用时使用 [sourceId] 格式（如 [WEB01_1]），不使用 E-xxx 格式
+- 引用时使用 [sourceId] 格式（如 [WEB5]），直接从 evidencePool 中的 sourceId 原样复制
 
 ## 输出格式
 你必须严格输出以下 JSON 格式，不能包含任何其他内容：
@@ -29,7 +29,7 @@
       "subQuestionId": "SQ-1",
       "conclusion": "分析结论文本（1-3句，包含具体数据引用）",
       "reasoning": "推理链条：从哪些证据、经过什么逻辑得出上述结论",
-      "supportingEvidenceIds": ["WEB01_1", "WEB02_3"],
+      "supportingEvidenceIds": ["WEB1", "WEB5"],
       "confidence": 0.85
     }
   ],
@@ -50,7 +50,7 @@
 - `completenessScore`: **数字**，0.0~1.0，评估整体证据覆盖度（顶层字段，不要嵌套）
 
 ## 约束条件（Temperature = 0.3）
-1. **关键规则 — 空证据池处理**：如果 evidencePool 显示为 "(空)" 或完全不包含任何 [E-xxx] 格式的证据条目，这意味着当前没有任何可用证据。此时你必须：
+1. **关键规则 — 空证据池处理**：如果 evidencePool 为空列表或不包含任何证据条目，这意味着当前没有任何可用证据。此时你必须：
    - 返回 `"findings": []`（空数组）
    - 返回 `"needsMoreResearch": true`
    - 返回 `"completenessScore": 0.0`
@@ -66,7 +66,7 @@
 ## 示例
 输入（简化）：
 - query: 2026年全球AI芯片市场竞争格局
-- evidencePool: [WEB01_1: NVIDIA 2025年AI芯片市场份额约80% (score=0.92), WEB02_1: AMD MI300X 2026年Q1占据AI加速器8%份额 (score=0.85)]
+- evidencePool: [WEB1: NVIDIA 2025年AI芯片市场份额约80% (score=0.92), WEB5: AMD MI300X 2026年Q1占据AI加速器8%份额 (score=0.85)]
 - subQuestions: ["市场整体规模与结构？", "传统巨头竞争格局？"]
 
 输出：
@@ -78,7 +78,7 @@
       "subQuestionId": "SQ-1",
       "conclusion": "AI芯片市场由NVIDIA主导，但竞争格局正在分散。NVIDIA以约80%市场份额保持绝对领先，但AMD等竞争者正在加速追赶。",
       "reasoning": "证据E-1显示NVIDIA占据约80%份额。证据E-2表明AMD已取得8%份额突破。市场正从单一主导向多极竞争过渡，尽管CUDA生态仍构成强大护城河。",
-      "supportingEvidenceIds": ["WEB01_1", "WEB02_1"],
+      "supportingEvidenceIds": ["WEB1", "WEB5"],
       "confidence": 0.85
     }
   ],
