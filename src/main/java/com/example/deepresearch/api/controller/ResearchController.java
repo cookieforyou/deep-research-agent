@@ -9,6 +9,7 @@ import com.example.deepresearch.security.PiiMaskingService;
 import com.example.deepresearch.security.PromptInjectionChecker;
 import com.example.deepresearch.security.PromptInjectionChecker.InjectionCheckResult;
 import com.example.deepresearch.security.SecurityLogService;
+import com.example.deepresearch.security.TenantJwtAuthenticationConverter;
 import com.example.deepresearch.service.ProgressEventPublisher;
 import com.example.deepresearch.service.ResearchOrchestratorService;
 import jakarta.validation.Valid;
@@ -123,8 +124,12 @@ public class ResearchController {
      * </p>
      */
     private ResearchRequest resolveIdentity(ResearchRequest request, Jwt jwt) {
-        String jwtUserId = jwt != null ? jwt.getClaimAsString("sub") : null;
-        String jwtTenantId = jwt != null ? jwt.getClaimAsString("tenant_id") : null;
+        // userId: Casdoor 特征（owner+name）→ owner/name，通用 IdP → sub
+        String jwtUserId = jwt != null
+            ? TenantJwtAuthenticationConverter.resolveUserId(jwt) : null;
+        // tenant_id claim 优先，缺失时回退 owner（Casdoor 组织即租户）
+        String jwtTenantId = jwt != null
+            ? TenantJwtAuthenticationConverter.resolveTenantId(jwt) : null;
 
         String userId = request.userId();
         if (jwtUserId != null && !jwtUserId.isBlank()) {
