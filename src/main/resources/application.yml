@@ -142,7 +142,7 @@ deep-research:
       api-key: ${BOCHA_API_KEY:}
       base-url: ${BOCHA_BASE_URL:https://api.bocha.cn}
       # 每次搜索返回结果数（增加以补偿单轮模式）
-      default-count: 15
+      default-count: 10
       # 搜索超时
       timeout: 30s
     # 搜索结果备选方案

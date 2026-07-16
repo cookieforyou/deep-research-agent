@@ -70,14 +70,14 @@ public class BochaSearchTool implements SearchTool {
      * </p>
      *
      * @param query 搜索查询词
-     * @param count 返回结果数量（1-50，取 config 默认值或指定值）
+     * @param count 返回结果数量（1-15，取 config 默认值或指定值）
      * @return 结构化搜索结果列表
      * @throws ResearchException 搜索失败时（触发降级到 FallbackSearchTool）
      */
     @Override
     @Retry(name = "search-retry")
     public List<SearchResult> search(String query, int count) {
-        int actualCount = count > 0 ? Math.min(count, 50) : config.defaultCount();
+        int actualCount = count > 0 ? Math.min(count, 15) : config.defaultCount();
 
         log.debug("Bocha 搜索: query='{}', count={}", query, actualCount);
 

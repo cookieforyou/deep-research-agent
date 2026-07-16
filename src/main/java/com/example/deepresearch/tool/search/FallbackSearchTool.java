@@ -76,7 +76,7 @@ public class FallbackSearchTool implements SearchTool {
             return Collections.emptyList();
         }
 
-        int actualCount = count > 0 ? Math.min(count, 20) : 10;
+        int actualCount = count > 0 ? Math.min(count, 15) : 10;
         log.debug("[降级搜索] Tavily 搜索: query='{}', count={}", query, actualCount);
 
         try {
