@@ -182,16 +182,20 @@ public class SemanticMemoryService {
             log.debug("[SemanticMem] 报告为空，跳过语义索引: sessionId={}", sessionId);
             return 0;
         }
-
         try {
+            // 步骤 0: 索引前清洗 — 剥离对语义检索无价值的内容
+            // (1) 「参考资料」章节：纯链接列表，向量化后是检索噪音，还会稀释语义缓存匹配
+            // (2) 正文引用链接 [[WEBx]](长URL) → [WEBx]：URL 字符稀释向量语义
+            String indexableReport = stripForIndexing(report);
+
             // 步骤 1: 文本分块
-            List<String> chunks = chunkText(report, chunkSize, chunkOverlap);
+            List<String> chunks = chunkText(indexableReport, chunkSize, chunkOverlap);
             if (chunks.isEmpty()) {
                 log.debug("[SemanticMem] 分块为空，跳过语义索引: sessionId={}", sessionId);
                 return 0;
             }
-            log.info("[SemanticMem] 报告分块完成: sessionId={}, chunks={}, reportLength={}",
-                sessionId, chunks.size(), report.length());
+            log.info("[SemanticMem] 报告分块完成: sessionId={}, chunks={}, reportLength={} (清洗后={})",
+                sessionId, chunks.size(), report.length(), indexableReport.length());
 
             // 提取报告标题（第一个 # 标题行）
             String reportTitle = extractTitle(report, query);
@@ -232,6 +236,38 @@ public class SemanticMemoryService {
     }
 
     // =========================== 私有辅助方法 ===========================
+
+    /** 匹配正文引用链接 [[WEB12]](url) 或 [[LOCAL3]](url)，用于索引前还原为 [WEB12] */
+    private static final java.util.regex.Pattern LINKED_CITATION_PATTERN =
+        java.util.regex.Pattern.compile(
+            "\\[(\\[(?:WEB|LOCAL)\\d+(?:_\\d+(?:-\\d+)?)?\\])\\]\\([^)]*\\)");
+
+    /**
+     * 索引前清洗报告文本（仅影响 Milvus 向量化文本，PG 中保留完整报告）.
+     * <ol>
+     *   <li>剥离「## 参考资料」章节 — 纯链接列表对语义检索零价值</li>
+     *   <li>正文引用链接 {@code [[WEBx]](url)} 还原为 {@code [WEBx]} — 去除 URL 噪音</li>
+     * </ol>
+     */
+    static String stripForIndexing(String report) {
+        String cleaned = report;
+
+        // 剥离参考资料章节（CitationValidator 统一以 "## 参考资料" 追加在文末）
+        int refIdx = cleaned.lastIndexOf("\n## 参考资料");
+        if (refIdx > 0) {
+            cleaned = cleaned.substring(0, refIdx);
+            // 顺带去掉章节前的 "---" 分隔线
+            cleaned = cleaned.stripTrailing();
+            if (cleaned.endsWith("---")) {
+                cleaned = cleaned.substring(0, cleaned.length() - 3).stripTrailing();
+            }
+        }
+
+        // 引用链接还原为纯标记
+        cleaned = LINKED_CITATION_PATTERN.matcher(cleaned).replaceAll("$1");
+
+        return cleaned;
+    }
 
     /**
      * 提取报告标题.
