@@ -4,6 +4,8 @@ import com.example.deepresearch.common.util.JsonParseUtils;
 import com.example.deepresearch.common.util.PromptSplitUtils;
 import com.example.deepresearch.common.util.PromptSplitUtils.PromptParts;
 import com.example.deepresearch.service.DynamicPromptService;
+import com.fasterxml.jackson.databind.PropertyNamingStrategies;
+import com.fasterxml.jackson.databind.annotation.JsonNaming;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
@@ -93,6 +95,9 @@ public class PreferenceExtractorAgent {
         }
     }
 
-    /** LLM 输出的偏好结果包装 */
+    /** LLM 输出的偏好结果包装.
+     *  注意：全局 ObjectMapper 为 SNAKE_CASE，须显式声明驼峰命名（项目 record 惯例）
+     */
+    @JsonNaming(PropertyNamingStrategies.LowerCamelCaseStrategy.class)
     public record PreferenceResult(Map<String, String> preferences) {}
 }

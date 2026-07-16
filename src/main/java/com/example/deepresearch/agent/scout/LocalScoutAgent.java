@@ -8,6 +8,8 @@ import com.example.deepresearch.common.util.JsonParseUtils;
 import com.example.deepresearch.common.util.PromptSplitUtils;
 import com.example.deepresearch.common.util.PromptSplitUtils.PromptParts;
 import com.example.deepresearch.service.DynamicPromptService;
+import com.fasterxml.jackson.databind.PropertyNamingStrategies;
+import com.fasterxml.jackson.databind.annotation.JsonNaming;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
@@ -185,10 +187,14 @@ public class LocalScoutAgent {
         return evidences;
     }
 
-    /** LLM 输出的筛选结论包装 — 只含 sourceId 引用，不复述内容 */
+    /** LLM 输出的筛选结论包装 — 只含 sourceId 引用，不复述内容.
+     *  注意：全局 ObjectMapper 为 SNAKE_CASE，须显式声明驼峰命名，否则 sourceId 反序列化为 null
+     */
+    @JsonNaming(PropertyNamingStrategies.LowerCamelCaseStrategy.class)
     public record SelectionListWrapper(List<Selection> selections) {}
 
     /** 单条筛选结论（sourceId 指向工具层收集的原始结果） */
+    @JsonNaming(PropertyNamingStrategies.LowerCamelCaseStrategy.class)
     record Selection(
         String sourceId,
         double score,

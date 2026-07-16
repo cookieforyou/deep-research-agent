@@ -226,7 +226,9 @@ public class AgentBundle {
             .build();
     }
 
-    /** PreferenceExtractor — 用户偏好提取 (Flash, T=0.1，提取需保守确定；输出极短) */
+    /** PreferenceExtractor — 用户偏好提取 (Flash, T=0.1，提取需保守确定).
+     *  <p>maxTokens=2048：模型可能先输出分析文字再输出 JSON，512 曾被耗尽导致 content 为空。</p>
+     */
     @Bean("preferenceExtractorClient")
     public ChatClient preferenceExtractorClient(ChatModel chatModel) {
         log.info("注册 PreferenceExtractor ChatClient (Flash, T=0.1)");
@@ -234,7 +236,7 @@ public class AgentBundle {
             .defaultOptions(DeepSeekChatOptions.builder()
                 .model(DeepSeekApi.ChatModel.DEEPSEEK_V4_FLASH)
                 .temperature(0.1)
-                .maxTokens(512))
+                .maxTokens(2048))
             .build();
     }
 
