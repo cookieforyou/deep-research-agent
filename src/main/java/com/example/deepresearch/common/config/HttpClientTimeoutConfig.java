@@ -12,7 +12,13 @@ import java.time.Duration;
  * <p>
  * DeepSeek Pro 模型处理复杂规划任务可能超过 Jetty 默认的 10 秒超时，
  * 此处提供自定义 RestClient.Builder，使用 JDK HttpClient 并设置
- * read timeout 120s、connect timeout 30s。
+ * read timeout 180s、connect timeout 30s。
+ * </p>
+ * <p>
+ * read timeout 取 180s 的依据：Writer Pro 生成 2000+ 字报告实测耗时
+ * 100~130s，曾两次（2026-07-16）被 120s 超时掐断触发 Pro→Flash 降级
+ * （表象为 "Error while extracting response ... ChatCompletion"）。
+ * 180s 给足余量；延迟劣化由 Prometheus LLMLatencyHigh 告警（P95 Pro &gt; 60s）监控。
  * </p>
  * <p>
  * Spring AI 的 DeepSeekChatModel 通过 ObjectProvider&lt;RestClient.Builder&gt;
@@ -28,7 +34,7 @@ public class HttpClientTimeoutConfig {
             .connectTimeout(Duration.ofSeconds(30))
             .build();
         var factory = new JdkClientHttpRequestFactory(httpClient);
-        factory.setReadTimeout(Duration.ofSeconds(120));
+        factory.setReadTimeout(Duration.ofSeconds(180));
         return RestClient.builder().requestFactory(factory);
     }
 }
