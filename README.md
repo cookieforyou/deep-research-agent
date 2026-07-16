@@ -15,37 +15,37 @@
 用户请求 → POST /api/research
               │
               ▼
-┌─────────────────────────────────────────────────────────┐
-│                    API 层 (WebFlux / SSE)               │
-├─────────────────────────────────────────────────────────┤
-│              编排层 (LangGraph4j StateGraph)             │
-│                                                         │
-│  START → intent_route ──[direct]──→ direct_answer → END │
-│              │                                          │
-│              └──[research]──→ plan → dual_search        │
-│                                        │                │
-│                                        ▼                │
-│                                      filter             │
-│                                        │                │
-│                                        ▼                │
-│                                     analyze             │
-│                                        │                │
-│                                        ▼                │
-│                                      write → END        │
-│                                                         │
-│  (单轮 DAG，无循环；EvidenceJudge 已由代码级去重替代)        │
-├─────────────────────────────────────────────────────────┤
-│            智能体层 (7 个 Agent, 两层模型)                 │
-│   IntentRouter(Flash)  Planner(Pro)    WebScout(Flash)  │
-│   LocalScout(Flash)    Analyst(Flash)   Writer(Pro)     │
-│   Eval(Flash) [异步]                                     │
-├─────────────────────────────────────────────────────────┤
-│             记忆系统 (三层架构)                            │
-│   L1 短期 (Redis)  L2 语义 (Milvus)  L3 长期 (PG)         │
-├─────────────────────────────────────────────────────────┤
-│        基础设施 (DeepSeek V4 / Milvus / PG / Redis)      │
-│        可观测性 (Prometheus / Grafana / Jaeger)          │
-└─────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│                    API 层 (WebFlux / SSE)                │
+├──────────────────────────────────────────────────────────┤
+│              编排层 (LangGraph4j StateGraph)              │
+│                                                          │
+│  START → intent_route ──[direct]──→ direct_answer → END  │
+│              │                                           │
+│              └──[research]──→ plan → dual_search         │
+│                                        │                 │
+│                                        ▼                 │
+│                                      filter              │
+│                                        │                 │
+│                                        ▼                 │
+│                                     analyze              │
+│                                        │                 │
+│                                        ▼                 │
+│                                      write → END         │
+│                                                          │
+│  (单轮 DAG，无循环；EvidenceJudge 已由代码级去重替代)         │
+├──────────────────────────────────────────────────────────┤
+│            智能体层 (7 个 Agent, 两层模型)                  │
+│   IntentRouter(Flash)  Planner(Pro)    WebScout(Flash)   │
+│   LocalScout(Flash)    Analyst(Flash)   Writer(Pro)      │
+│   Eval(Flash) [异步]                                      │
+├──────────────────────────────────────────────────────────┤
+│             记忆系统 (三层架构)                             │
+│   L1 短期 (Redis)  L2 语义 (Milvus)  L3 长期 (PG)          │
+├──────────────────────────────────────────────────────────┤
+│        基础设施 (DeepSeek V4 / Milvus / PG / Redis)       │
+│        可观测性 (Prometheus / Grafana / Jaeger)           │
+└──────────────────────────────────────────────────────────┘
 ```
 
 ## 核心特性

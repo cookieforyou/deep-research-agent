@@ -100,11 +100,9 @@ public class LocalScoutAgent {
         String queriesContext = String.join("\n", searchPlanQueries.stream()
             .map(q -> "- " + q).toList());
 
-        // 设置租户 ID 到 SearchTools，确保 @Tool 执行时 ThreadLocal 跨虚拟线程可用
-        searchTools.setTenantId(tenantId);
-
-        // 开启工具层证据收集（@Tool 执行与本方法同线程）
-        searchTools.beginCollection("LOCAL");
+        // 开启工具层证据收集并绑定租户 ID（收集器为 ThreadLocal，@Tool 执行与本方法同线程，
+        // 并发会话天然隔离——禁止用单例字段暂存 tenantId，曾导致跨租户泄漏风险）
+        searchTools.beginCollection("LOCAL", tenantId);
         String raw = null;
         Map<String, CollectedSource> collected;
         try {

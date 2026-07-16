@@ -45,23 +45,12 @@ public class SearchTools {
     private final SearchTool searchTool;
     private final VectorStoreService vectorStoreService;
 
-    /**
-     * 租户 ID 暂存 — 由 Agent 在 LLM 调用前设置，解决 @Tool 执行时
-     * ThreadLocal TenantContext 在虚拟线程边界丢失的问题.
-     */
-    private volatile String storedTenantId;
-
-    /** 线程级证据收集器（每个 Scout 的工具循环独占一个） */
+    /** 线程级证据收集器（每个 Scout 的工具循环独占一个，同时承载本轮租户 ID） */
     private final ThreadLocal<EvidenceCollector> collector = new ThreadLocal<>();
 
     public SearchTools(SearchTool searchTool, VectorStoreService vectorStoreService) {
         this.searchTool = searchTool;
         this.vectorStoreService = vectorStoreService;
-    }
-
-    /** Agent 在 LLM 调用前设置当前租户 ID */
-    public void setTenantId(String tenantId) {
-        this.storedTenantId = tenantId;
     }
 
     // =========================== 证据收集器生命周期 ===========================
@@ -72,7 +61,23 @@ public class SearchTools {
      * @param sourceIdPrefix sourceId 前缀（WEB / LOCAL）
      */
     public void beginCollection(String sourceIdPrefix) {
-        collector.set(new EvidenceCollector(sourceIdPrefix));
+        beginCollection(sourceIdPrefix, null);
+    }
+
+    /**
+     * 开始收集并绑定本轮租户 ID（LocalScout 使用）.
+     * <p>
+     * 租户 ID 随收集器存于 ThreadLocal，@Tool 回调在发起 {@code .call()}
+     * 的同一线程上同步执行，天然按 Scout/会话隔离。
+     * <strong>禁止改回单例字段暂存</strong>：曾用 {@code volatile String storedTenantId}
+     * 实现，并发会话会互相覆盖导致跨租户检索泄漏（2026-07-16 修复）。
+     * </p>
+     *
+     * @param sourceIdPrefix sourceId 前缀（WEB / LOCAL）
+     * @param tenantId       本轮检索的租户 ID（webSearch 场景可为 null）
+     */
+    public void beginCollection(String sourceIdPrefix, String tenantId) {
+        collector.set(new EvidenceCollector(sourceIdPrefix, tenantId));
     }
 
     /**
@@ -122,12 +127,14 @@ public class SearchTools {
         适用场景：查询公司政策、产品文档、历史研究报告等内部资料。""")
     public List<DocSearchResult> localSearch(
             @ToolParam(description = "检索查询语句，建议使用专业术语") String query) {
-        // 优先使用 Agent 设置的 storedTenantId，fallback 到 TenantContext ThreadLocal
-        String tenantId = storedTenantId != null ? storedTenantId
+        EvidenceCollector c = collector.get();
+        // 租户 ID 解析：收集器绑定值（LocalScout 在 beginCollection 时传入，线程隔离）
+        // → fallback TenantContext ThreadLocal → default
+        String tenantId = c != null && c.tenantId() != null
+            ? c.tenantId()
             : TenantContext.getCurrentTenant();
         if (tenantId == null) tenantId = "default";
         log.debug("[SearchTools] localSearch: query='{}', tenantId={}", query, tenantId);
-        EvidenceCollector c = collector.get();
         return vectorStoreService.similaritySearch(query, tenantId, 4, 0.7)
             .stream().map(d -> {
                 String content = d.getText();
@@ -186,7 +193,7 @@ public class SearchTools {
     ) {}
 
     /**
-     * 单线程证据收集器 — 分配自增 sourceId 并按 dedupKey 去重.
+     * 单线程证据收集器 — 分配自增 sourceId 并按 dedupKey 去重，同时承载本轮租户 ID.
      * <p>
      * 仅在发起工具循环的线程上访问（Spring AI 工具回调同步执行于调用线程），
      * 无需加锁。
@@ -194,12 +201,22 @@ public class SearchTools {
      */
     static class EvidenceCollector {
         private final String prefix;
+        private final String tenantId;
         private final Map<String, String> keyToId = new LinkedHashMap<>();
         private final Map<String, CollectedSource> sources = new LinkedHashMap<>();
         private int seq = 0;
 
         EvidenceCollector(String prefix) {
+            this(prefix, null);
+        }
+
+        EvidenceCollector(String prefix, String tenantId) {
             this.prefix = prefix;
+            this.tenantId = tenantId;
+        }
+
+        String tenantId() {
+            return tenantId;
         }
 
         String register(String dedupKey, String title, String url,

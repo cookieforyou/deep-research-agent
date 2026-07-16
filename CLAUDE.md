@@ -186,7 +186,7 @@ START → intent_route ──[direct]──→ direct_answer → END
 **数据流**：
 - 研究前：`MemoryManager.buildMemoryContext()` → 三元组 Mono.zip（短期+语义+长期）→ 注入 Planner
 - 研究前：[缓存检查] `SemanticCacheService.checkCache()` → Milvus 高阈值相似度检索 → 命中时从 PG 获取完整报告直接返回
-- 研究后：`MemoryManager.indexResearchToSemanticMemory()` → 报告分块 → 向量化 → 写入 Milvus（DEGRADED 报告跳过，防止污染语义缓存）
+- 研究后：`MemoryManager.indexResearchToSemanticMemory()` → **stripForIndexing 清洗**（剥离参考资料章节 + 引用链接还原裸标记，PG 保留完整报告）→ 报告分块 → 向量化 → 写入 Milvus（DEGRADED 报告跳过，防止污染语义缓存）
 - 研究后：PreferenceExtractorAgent 异步提取偏好 → `LongTermMemoryService.mergeUserPreferences()` 代码级合并（新值覆盖同名 key，上限 20 key）→ 下次研究经画像上下文注入 Planner
 
 语义记忆使用 `doc_type == "research_history"` 与用户上传文档（L3 层）隔离。
@@ -196,6 +196,7 @@ START → intent_route ──[direct]──→ direct_answer → END
 
 ### 代码风格
 - **Java Records** 用于领域模型（不可变性 + Jackson 3 原生支持）
+- **⚠️ 全局 ObjectMapper 为 SNAKE_CASE**（JacksonConfig）：任何参与 LLM JSON 反序列化的 record **必须**加 `@JsonNaming(PropertyNamingStrategies.LowerCamelCaseStrategy.class)`，否则驼峰字段（如 sourceId）会被静默忽略反序列化为 null（FAIL_ON_UNKNOWN_PROPERTIES=false 不报错，极难排查——2026-07-16 曾因此导致 Scout 筛选全量失效）
 - **LangGraph4j AgentState** 用于工作流状态（Channel 语义）
 - 所有 LLM JSON 输出通过 `.call().entity(Record.class)` 自动解析（Spring AI 2.0 结构化输出 + 自校正）
 - `JsonParseUtils` 保留作为极端边缘情况兜底（修复尾逗号/未闭合括号/中文引号）
@@ -221,8 +222,8 @@ START → intent_route ──[direct]──→ direct_answer → END
 ### 多租户
 - `ResearchState.tenantId` 贯穿全流程
 - Milvus 检索时 `FilterExpression` 强制注入 `tenant_id`
-- **身份以 JWT 为准**：Controller 层从 claims 解析 `sub`/`tenant_id` 强制覆盖请求体声明（请求体值可被伪造，仅在 claim 缺失时兼容回退并 WARN；不一致记 SECURITY 日志 `IDENTITY_MISMATCH`）
-- JWT claims 中提取 `tenant_id` → `TenantContext` ThreadLocal
+- **身份以 JWT 为准**：Controller 层从 claims 解析身份强制覆盖请求体声明（请求体值可被伪造，仅在 claim 缺失时兼容回退并 WARN；不一致记 SECURITY 日志 `IDENTITY_MISMATCH`）
+- **Casdoor 适配**（`TenantJwtAuthenticationConverter`）：userId = `owner/name`（Casdoor `sub` 是 UUID 不可读），tenantId = `tenant_id` claim 优先 → 回退 `owner`（Casdoor 组织即租户）；Application 的 Token format 必须选 `JWT`（完整字段，`JWT-Standard` 不含 owner）
 - 语义记忆额外过滤 `doc_type == "research_history"` 与知识库文档隔离
 
 ### 安全
@@ -343,6 +344,13 @@ cd observability && docker compose up -d
 | 租户/用户身份取自请求体可被伪造 | ✅ 已修复 — Controller 以 JWT claims (sub/tenant_id) 为准，请求体仅兼容回退，不一致记 SECURITY 日志 | 2026-07-15 |
 | `user_profile.preferences` 恒为 `{}`（无写入路径） | ✅ 已完成 — 新增 PreferenceExtractorAgent (Flash T=0.1) 研究后异步提取 + 代码级 merge 写入 | 2026-07-15 |
 | **@Tool 层证据收集重构**（根治 LLM 复述 JSON 脆弱性） | ✅ 已完成 — SearchTools ThreadLocal 收集器分配 sourceId 并保存原文；Scout LLM 只输出 selections(sourceId+score+rank)；Evidence 由 Java 组装；LLM 输出不可用时降级采用收集结果（EvidenceScorer 规则评分），零证据空转结构上不可能再发生 | 2026-07-15 |
+| **Casdoor JWT 适配** | ✅ 已完成 — Casdoor `sub`=UUID 不可读、无 tenant_id claim；`resolveUserId()` 组合 owner/name，`resolveTenantId()` 回退 owner（组织即租户）。测试用 password grant（username 传裸用户名，组织由 Application 决定），client credentials 是 M2M 无用户上下文 | 2026-07-16 |
+| Scout `Selection` record 反序列化 sourceId 恒为 null（LLM 输出正确但被丢弃） | ✅ 已修复 — 全局 ObjectMapper 为 SNAKE_CASE（JacksonConfig），新 record 漏加 `@JsonNaming(LowerCamelCaseStrategy)` 导致驼峰 key 被静默忽略；曾误判为"DB 模板未更新" | 2026-07-16 |
+| PreferenceExtractor 输出恒为空（completion=512 打满 maxTokens） | ✅ 已修复 — 模型先输出分析文字耗尽配额，maxTokens 512→2048 | 2026-07-16 |
+| 报告引用无 URL（正文 `[WEB12]` 裸标记 + 参考资料列表只有编号） | ✅ 已修复 — CitationValidator 正则适配新版 sourceId（兼容旧格式）；`linkifyBodyCitations()` 正文标记→可点击链接；`appendReferenceList()` 改用 evidencePool 渲染标题+URL+domain；writer/analyst prompt 引用示例同步 | 2026-07-16 |
+| Milvus 语义索引污染（参考资料链接列表占近半 chunks + 正文引用长 URL 稀释向量） | ✅ 已修复 — `SemanticMemoryService.stripForIndexing()` 分块前剥离参考资料章节 + `[[WEBx]](url)` 还原裸标记；仅影响向量化文本，PG 保留完整报告 | 2026-07-16 |
+| Writer Pro 调用在 ~120s 被掐断触发 Pro→Flash 降级（两次复现，报告质量下降） | ✅ 已修复 — 根因是 HttpClientTimeoutConfig readTimeout=120s，Pro 写 2000+ 字实测 100~130s；调整为 180s | 2026-07-16 |
+| `SearchTools.storedTenantId` 单例 volatile 字段跨租户泄漏风险（并发会话互相覆盖，A 会话可检索到 B 租户文档） | ✅ 已修复 — 删除该字段，tenantId 折叠进 ThreadLocal EvidenceCollector（`beginCollection(prefix, tenantId)`），与工具回调同线程执行、按会话天然隔离 | 2026-07-16 |
 
 ### Milvus 集合 Schema Migration 注意
 语义缓存功能需要 `session_id`、`query`、`chunk_index` 三个字段。如果 Milvus 集合是 2026-07-08 之前创建的，需重建：
@@ -357,6 +365,13 @@ cd observability && docker compose up -d
 
 ### 历史脏数据注意（2026-07-15）
 session `003e41fb`（零证据空转事故）的报告在熔断机制上线前已写入 Milvus 语义缓存（5 chunks）+ PG research_history。建议删除 Milvus 中 `session_id == "003e41fb"` 的记录及 PG 对应行，防止相似查询命中缓存返回无证据报告。
+另：2026-07-16 stripForIndexing 上线前索引的报告 chunks（session `a3162bf8` 及更早）含参考资料链接列表，如在意检索质量可一并清理。
+
+### 已知遗留问题（待处理）
+| 问题 | 说明 |
+|:---|:---|
+| `localSearch` 未隔离 `doc_type` | `SearchTools.localSearch` 检索时 `extraFilter=null`，会把 `research_history`（历史研报 chunks）当作知识库文档召回，造成自我引用。目前知识库为空未暴露；知识库启用前必须加 `doc_type != "research_history"` 过滤（2026-07-15 用户决定暂缓） |
+| Writer 字数偶尔不足 1500 | 主要发生在 Pro→Flash 降级时；Pro 超时修复（180s）后应显著减少，持续观察 |
 
 ## 常见任务
 

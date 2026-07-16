@@ -81,4 +81,16 @@ class EvidenceCollectorTest {
         assertThat(c.snapshot()).hasSize(2);
         assertThat(List.copyOf(c.snapshot().keySet())).containsExactly("WEB1", "WEB2");
     }
+
+    @Test
+    void carriesTenantIdPerCollector() {
+        // 租户 ID 随收集器实例隔离（替代曾导致跨租户泄漏的单例 volatile 字段）
+        EvidenceCollector tenantA = new EvidenceCollector("LOCAL", "tenant_001");
+        EvidenceCollector tenantB = new EvidenceCollector("LOCAL", "tenant_002");
+        EvidenceCollector webNoTenant = new EvidenceCollector("WEB");
+
+        assertThat(tenantA.tenantId()).isEqualTo("tenant_001");
+        assertThat(tenantB.tenantId()).isEqualTo("tenant_002");
+        assertThat(webNoTenant.tenantId()).isNull();
+    }
 }
