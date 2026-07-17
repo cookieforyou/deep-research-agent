@@ -45,8 +45,7 @@ public class AnalystAgent {
 
     private final ChatClient chatClient;
     private final JsonParseUtils jsonUtils;
-    private final String systemPrompt;
-    private final String userPromptTemplate;
+    private final DynamicPromptService dynamicPromptService;
 
     /** Fallback: 接受当前证据，不做补充 */
     private static final AnalysisResult FALLBACK = new AnalysisResult(
@@ -59,10 +58,7 @@ public class AnalystAgent {
     ) {
         this.chatClient = chatClient;
         this.jsonUtils = jsonUtils;
-        String fullTemplate = dynamicPromptService.getTemplateContent("analyst");
-        PromptParts parts = PromptSplitUtils.split(fullTemplate);
-        this.systemPrompt = parts.system();
-        this.userPromptTemplate = parts.user();
+        this.dynamicPromptService = dynamicPromptService;
     }
 
     /**
@@ -80,7 +76,11 @@ public class AnalystAgent {
             evidencePool != null ? evidencePool.size() : 0);
 
         try {
-            String userPrompt = userPromptTemplate
+            // 每次调用时加载模板（DynamicPromptService 内置 1min TTL 缓存）→ 支持 DB 热更新免重启
+            PromptParts parts = PromptSplitUtils.split(
+                dynamicPromptService.getTemplateContent("analyst"));
+
+            String userPrompt = parts.user()
                 .replace("{{query}}", query)
                 .replace("{{subQuestions}}",
                     subQuestions != null ? String.join("\n", subQuestions) : "")
@@ -90,7 +90,7 @@ public class AnalystAgent {
             // .entity() 自动 JSON 解析 + 类型映射 + 自校正
             AnalysisResult result = chatClient.prompt()
                 .advisors(a -> a.param("agent", "Analyst").param("tier", "flash"))
-                .system(systemPrompt)
+                .system(parts.system())
                 .user(userPrompt)
                 .call()
                 .entity(AnalysisResult.class);

@@ -32,8 +32,40 @@ public class BusinessMetrics {
 
     private final MeterRegistry registry;
 
+    /** 按租户的评估分 Gauge 后备值（tenant → 最近一次 overallScore） */
+    private final java.util.concurrent.ConcurrentHashMap<String,
+        java.util.concurrent.atomic.AtomicReference<Double>> evalScoreGauges =
+        new java.util.concurrent.ConcurrentHashMap<>();
+
     public BusinessMetrics(MeterRegistry registry) {
         this.registry = registry;
+    }
+
+    // ======================== Eval 指标 ========================
+
+    /**
+     * 记录评估分（按租户隔离的 Gauge）.
+     * <p>
+     * 指标名保持 {@code deepresearch.eval.score}（兼容 EvalScoreLow 告警规则），
+     * 增加 {@code tenant} tag——全局单值 Gauge 时代多租户并发评估互相覆盖，
+     * 低分告警会被其他租户的高分掩盖（2026-07-17 修复）。
+     * </p>
+     *
+     * @param tenantId 租户 ID
+     * @param score    本次评估综合分
+     */
+    public void recordEvalScore(String tenantId, double score) {
+        String tenant = tenantId != null && !tenantId.isBlank() ? tenantId : "default";
+        evalScoreGauges.computeIfAbsent(tenant, t -> {
+            var ref = new java.util.concurrent.atomic.AtomicReference<>(0.0);
+            io.micrometer.core.instrument.Gauge
+                .builder("deepresearch.eval.score", ref,
+                    r -> r.get() != null ? r.get() : 0.0)
+                .tag("tenant", t)
+                .description("最近一次报告质量评估综合分（按租户）")
+                .register(registry);
+            return ref;
+        }).set(score);
     }
 
     // ======================== 搜索指标 ========================

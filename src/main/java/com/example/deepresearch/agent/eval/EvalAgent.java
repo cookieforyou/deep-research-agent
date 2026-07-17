@@ -13,7 +13,6 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
-import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * 评估 Agent — 对生成的研报进行多维度质量评估.
@@ -54,26 +53,22 @@ public class EvalAgent {
 
     private final ChatClient chatClient;
     private final JsonParseUtils jsonUtils;
-    private final String systemPrompt;
-    private final String userPromptTemplate;
+    private final DynamicPromptService dynamicPromptService;
     private final PiiMaskingService piiMaskingService;
-    private final AtomicReference<Double> evalScoreGauge;
+    private final com.example.deepresearch.common.observability.BusinessMetrics businessMetrics;
 
     public EvalAgent(
         @Qualifier("evalClient") ChatClient chatClient,
         JsonParseUtils jsonUtils,
         DynamicPromptService dynamicPromptService,
         PiiMaskingService piiMaskingService,
-        AtomicReference<Double> evalScoreGauge
+        com.example.deepresearch.common.observability.BusinessMetrics businessMetrics
     ) {
         this.chatClient = chatClient;
         this.jsonUtils = jsonUtils;
         this.piiMaskingService = piiMaskingService;
-        this.evalScoreGauge = evalScoreGauge;
-        String fullTemplate = dynamicPromptService.getTemplateContent("eval");
-        PromptParts parts = PromptSplitUtils.split(fullTemplate);
-        this.systemPrompt = parts.system();
-        this.userPromptTemplate = parts.user();
+        this.businessMetrics = businessMetrics;
+        this.dynamicPromptService = dynamicPromptService;
     }
 
     /**
@@ -94,13 +89,17 @@ public class EvalAgent {
             sourceIndex != null ? sourceIndex.size() : 0);
 
         try {
+            // 每次调用时加载模板（DynamicPromptService 内置 1min TTL 缓存）→ 支持 DB 热更新免重启
+            PromptParts parts = PromptSplitUtils.split(
+                dynamicPromptService.getTemplateContent("eval"));
+
             // 截断报告以控制 token 成本（评估不需要全文）
             String truncatedReport = truncateReport(report);
 
             // 截断 sourceIndex（40 个条目约 2000 字符，对评估而言前 20 个足够）
             String truncatedSourceIndex = truncateSourceIndex(sourceIndex);
 
-            String userPrompt = userPromptTemplate
+            String userPrompt = parts.user()
                 .replace("{{query}}", query != null ? query : "")
                 .replace("{{subQuestions}}",
                     subQuestions != null && !subQuestions.isEmpty()
@@ -110,12 +109,12 @@ public class EvalAgent {
                 .replace("{{report}}", truncatedReport);
 
             log.debug("[Eval] Prompt 构造完成: system={} 字符, user={} 字符",
-                systemPrompt.length(), userPrompt.length());
+                parts.system().length(), userPrompt.length());
 
             // .entity() 自动 JSON 解析 + 类型映射 + 自校正
             EvalResult result = chatClient.prompt()
                 .advisors(a -> a.param("agent", "Eval").param("tier", "flash"))
-                .system(systemPrompt)
+                .system(parts.system())
                 .user(userPrompt)
                 .call()
                 .entity(EvalResult.class);
@@ -143,8 +142,11 @@ public class EvalAgent {
             if (result == EvalResult.FALLBACK) {
                 log.warn("[Eval] 评估 JSON 解析失败，使用 fallback");
             } else {
-                // 更新 Micrometer Gauge 供 Prometheus 告警规则使用
-                evalScoreGauge.set(result.overallScore());
+                // 更新按租户隔离的 Micrometer Gauge（供 Prometheus EvalScoreLow 告警使用）
+                // 租户来自 TenantContext（triggerAsyncEval 已在虚拟线程中恢复）
+                businessMetrics.recordEvalScore(
+                    com.example.deepresearch.security.TenantContext.getCurrentTenant(),
+                    result.overallScore());
                 log.info("[Eval] 评估完成: relevance={}, coherence={}, citationAccuracy={}, " +
                     "completeness={}, conciseness={}, overallScore={}",
                     String.format("%.1f", result.relevance()),

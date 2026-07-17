@@ -38,8 +38,7 @@ public class PreferenceExtractorAgent {
 
     private final ChatClient chatClient;
     private final JsonParseUtils jsonUtils;
-    private final String systemPrompt;
-    private final String userPromptTemplate;
+    private final DynamicPromptService dynamicPromptService;
 
     /** Fallback: 解析失败时返回空偏好（不写库） */
     private static final PreferenceResult FALLBACK = new PreferenceResult(Map.of());
@@ -51,10 +50,7 @@ public class PreferenceExtractorAgent {
     ) {
         this.chatClient = chatClient;
         this.jsonUtils = jsonUtils;
-        String fullTemplate = dynamicPromptService.getTemplateContent("preference-extractor");
-        PromptParts parts = PromptSplitUtils.split(fullTemplate);
-        this.systemPrompt = parts.system();
-        this.userPromptTemplate = parts.user();
+        this.dynamicPromptService = dynamicPromptService;
     }
 
     /**
@@ -68,10 +64,14 @@ public class PreferenceExtractorAgent {
     public Map<String, String> extract(String query, String recentTopics,
                                         String existingPreferences) {
         try {
+            // 每次调用时加载模板（DynamicPromptService 内置 1min TTL 缓存）→ 支持 DB 热更新免重启
+            PromptParts parts = PromptSplitUtils.split(
+                dynamicPromptService.getTemplateContent("preference-extractor"));
+
             String raw = chatClient.prompt()
                 .advisors(a -> a.param("agent", "PreferenceExtractor").param("tier", "flash"))
-                .system(systemPrompt)
-                .user(userPromptTemplate
+                .system(parts.system())
+                .user(parts.user()
                     .replace("{{query}}", query != null ? query : "")
                     .replace("{{recentTopics}}",
                         recentTopics != null && !recentTopics.isBlank() ? recentTopics : "[]")

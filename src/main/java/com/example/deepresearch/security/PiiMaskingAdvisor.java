@@ -24,22 +24,29 @@ import java.util.List;
  * <p>
  * 在 ChatClient 调用链的两个关键点执行操作：
  * <ul>
- *   <li><b>before()</b>: 将 Prompt 中的 PII 替换为类型化令牌（如 {@code <PHONE_0>}），
+ *   <li><b>before()</b>: 创建<strong>请求级 Vault</strong>，将 Prompt 中的 PII 替换为
+ *       类型化令牌（如 {@code <PHONE_0>}），Vault 经 advisor context 传递，
  *       确保 DeepSeek API 永远看不到原始 PII</li>
- *   <li><b>after()</b>: 扫描 LLM 响应中的令牌，从 Vault 中还原原始 PII 值</li>
+ *   <li><b>after()</b>: 从 context 取回本请求的 Vault，扫描 LLM 响应中的令牌还原原始值</li>
  * </ul>
  * </p>
  *
  * <h3>优先级</h3>
  * <p>{@link Ordered#HIGHEST_PRECEDENCE} — 最高优先级，在任何其他 Advisor 之前运行。</p>
  *
- * <h3>线程安全</h3>
- * <p>无状态设计，所有状态由 {@link PiiMaskingService} 的线程安全 Vault 管理。</p>
+ * <h3>租户隔离</h3>
+ * <p>
+ * Vault 为请求级作用域（advisor context 携带），令牌只在本次调用内可还原——
+ * 其他会话/租户的响应即使出现相同令牌字面量也无法还原出本请求的 PII。
+ * </p>
  */
 @Component
 public class PiiMaskingAdvisor implements BaseAdvisor {
 
     private static final Logger log = LoggerFactory.getLogger(PiiMaskingAdvisor.class);
+
+    /** advisor context 中携带请求级 Vault 的 key */
+    static final String PII_VAULT_CONTEXT_KEY = "piiVault";
 
     private final PiiMaskingService maskingService;
     private final SecurityLogService securityLog;
@@ -82,11 +89,14 @@ public class PiiMaskingAdvisor implements BaseAdvisor {
         List<Message> tokenizedMessages = new ArrayList<>();
         boolean anyTokenized = false;
 
+        // 请求级 Vault：仅本次调用可还原，经 advisor context 传递到 after()
+        PiiMaskingService.PiiVault vault = new PiiMaskingService.PiiVault();
+
         for (Message message : originalMessages) {
             if (message instanceof UserMessage userMessage) {
                 String text = userMessage.getText();
                 if (text != null && !text.isBlank()) {
-                    String tokenizedText = maskingService.tokenizeToString(text);
+                    String tokenizedText = maskingService.tokenize(text, vault).tokenizedText();
                     if (!tokenizedText.equals(text)) {
                         anyTokenized = true;
                         UserMessage tokenizedMsg = userMessage.mutate()
@@ -105,6 +115,9 @@ public class PiiMaskingAdvisor implements BaseAdvisor {
                 .messages(tokenizedMessages)
                 .build();
 
+            // Vault 挂入 context，供 after() 还原本请求的令牌
+            request.context().put(PII_VAULT_CONTEXT_KEY, vault);
+
             return request.mutate().prompt(tokenizedPrompt).build();
         }
 
@@ -112,11 +125,17 @@ public class PiiMaskingAdvisor implements BaseAdvisor {
     }
 
     /**
-     * 响应后处理: 将 LLM 响应中的令牌还原为原始 PII 值.
+     * 响应后处理: 从 context 取回本请求的 Vault，将响应中的令牌还原为原始 PII 值.
      */
     @Override
     public ChatClientResponse after(ChatClientResponse response, AdvisorChain chain) {
         if (properties.pii() == null || !properties.pii().enabled()) {
+            return response;
+        }
+
+        // 本请求未做标记化（无 PII 或 skipPiiMask）→ 无需还原
+        Object vaultObj = response.context().get(PII_VAULT_CONTEXT_KEY);
+        if (!(vaultObj instanceof PiiMaskingService.PiiVault vault) || vault.isEmpty()) {
             return response;
         }
 
@@ -138,7 +157,7 @@ public class PiiMaskingAdvisor implements BaseAdvisor {
             if (output != null) {
                 String text = output.getText();
                 if (text != null && !text.isBlank()) {
-                    String restoredText = maskingService.restore(text);
+                    String restoredText = maskingService.restore(text, vault);
                     if (!restoredText.equals(text)) {
                         anyRestored = true;
                         AssistantMessage restoredMsg = AssistantMessage.builder()

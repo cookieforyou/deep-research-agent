@@ -40,8 +40,7 @@ public class PlannerAgent {
     private final ChatClient fallbackClient;
     private final ModelFallbackService fallbackService;
     private final JsonParseUtils jsonUtils;
-    private final String systemPrompt;
-    private final String userPromptTemplate;
+    private final DynamicPromptService dynamicPromptService;
     private final PiiMaskingService piiMaskingService;
 
     /** Fallback: 最简计划（不做拆解，直接搜索原始 query） */
@@ -64,10 +63,7 @@ public class PlannerAgent {
         this.fallbackService = fallbackService;
         this.jsonUtils = jsonUtils;
         this.piiMaskingService = piiMaskingService;
-        String fullTemplate = dynamicPromptService.getTemplateContent("planner");
-        PromptParts parts = PromptSplitUtils.split(fullTemplate);
-        this.systemPrompt = parts.system();
-        this.userPromptTemplate = parts.user();
+        this.dynamicPromptService = dynamicPromptService;
     }
 
     /**
@@ -81,7 +77,11 @@ public class PlannerAgent {
         log.info("[Planner] 开始规划: query='{}'", piiMaskingService.tokenizeToString(query));
 
         try {
-            String userPrompt = userPromptTemplate
+            // 每次调用时加载模板（DynamicPromptService 内置 1min TTL 缓存）→ 支持 DB 热更新免重启
+            PromptParts parts = PromptSplitUtils.split(
+                dynamicPromptService.getTemplateContent("planner"));
+
+            String userPrompt = parts.user()
                 .replace("{{query}}", query)
                 .replace("{{memoryContext}}",
                     memoryContext != null ? memoryContext : "（无历史上下文）")
@@ -89,7 +89,7 @@ public class PlannerAgent {
 
             // .entity() 自动 JSON 解析 + 类型映射 + 自校正（降级逻辑内置于 ModelFallbackService）
             PlanResult result = fallbackService.callWithFallback(
-                chatClient, fallbackClient, systemPrompt, userPrompt, "Planner", PlanResult.class);
+                chatClient, fallbackClient, parts.system(), userPrompt, "Planner", PlanResult.class);
 
             log.debug("[Planner] LLM 解析完成: {} 个子问题, {} 个搜索计划",
                 result.subQuestions() != null ? result.subQuestions().size() : 0,

@@ -31,8 +31,7 @@ public class IntentRouterAgent {
 
     private final ChatClient chatClient;
     private final JsonParseUtils jsonUtils;
-    private final String systemPrompt;
-    private final String userPromptTemplate;
+    private final DynamicPromptService dynamicPromptService;
     private final PiiMaskingService piiMaskingService;
 
     public IntentRouterAgent(
@@ -44,10 +43,7 @@ public class IntentRouterAgent {
         this.chatClient = chatClient;
         this.jsonUtils = jsonUtils;
         this.piiMaskingService = piiMaskingService;
-        String fullTemplate = dynamicPromptService.getTemplateContent("intent-router");
-        PromptParts parts = PromptSplitUtils.split(fullTemplate);
-        this.systemPrompt = parts.system();
-        this.userPromptTemplate = parts.user();
+        this.dynamicPromptService = dynamicPromptService;
     }
 
     /**
@@ -78,14 +74,18 @@ public class IntentRouterAgent {
         }
 
         try {
+            // 每次调用时加载模板（DynamicPromptService 内置 1min TTL 缓存）→ 支持 DB 热更新免重启
+            PromptParts parts = PromptSplitUtils.split(
+                dynamicPromptService.getTemplateContent("intent-router"));
+
             // 构建 user message（仅包含查询数据）
-            String userPrompt = userPromptTemplate.replace("{{query}}", query);
+            String userPrompt = parts.user().replace("{{query}}", query);
 
             // 使用 system/user 分离调用（架构级注入防护），
             // .entity() 自动 JSON 解析 + 类型映射 + 自校正
             RouteResult result = chatClient.prompt()
                 .advisors(a -> a.param("agent", "IntentRouter").param("tier", "flash"))
-                .system(systemPrompt)
+                .system(parts.system())
                 .user(userPrompt)
                 .call()
                 .entity(RouteResult.class);

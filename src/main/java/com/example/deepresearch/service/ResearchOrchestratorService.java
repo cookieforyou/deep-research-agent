@@ -277,7 +277,6 @@ public class ResearchOrchestratorService {
                     // 记录工作流成功指标
                     String intent = finalState.intent() != null ? finalState.intent() : "research";
                     businessMetrics.recordWorkflowCompleted(intent, "success", durationMs);
-                    tokenUsageTracker.clearSession(sessionId);
 
                     // 推送最终完成事件
                     int wordCount = countWords(finalState.finalReport());
@@ -302,6 +301,8 @@ public class ResearchOrchestratorService {
             progressPublisher.error(sessionId, e);
         } finally {
             activeSessions.remove(sessionId);
+            // 统一清理会话级 Token 统计（含 error 路径——曾只在成功路径清理，失败会话残留）
+            tokenUsageTracker.clearSession(sessionId);
         }
     }
 

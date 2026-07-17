@@ -22,7 +22,8 @@ import java.util.List;
  *   <li>tenantId: {@code tenant_id} claim 优先，缺失时回退 {@code owner}</li>
  *   <li>{@code scope} 或 {@code authorities} → 权限列表</li>
  * </ul>
- * 并将 tenantId 设置到 {@link TenantContext} 中，供后续 RAG 检索隔离使用。
+ * 注意：本类<strong>不写</strong> {@link TenantContext}（运行于池化 netty 线程，
+ * 残留会跨请求泄漏）；业务侧 TenantContext 由工作流虚拟线程显式设置。
  * </p>
  *
  * <h3>Casdoor 适配</h3>
@@ -44,11 +45,10 @@ public class TenantJwtAuthenticationConverter
         String userId = resolveUserId(jwt);
         String tenantId = resolveTenantId(jwt);
 
-        // 设置租户上下文（ThreadLocal，供 Milvus 检索过滤使用）
-        if (tenantId != null && !tenantId.isEmpty()) {
-            TenantContext.setCurrentTenant(tenantId);
-            TenantContext.setCurrentUser(userId);
-        }
+        // 注意：此处不写 TenantContext ThreadLocal——本方法运行在 reactor-http-nio
+        // 池化线程上，set 后不清理会残留到该线程服务的下一个请求（曾是跨租户读取隐患，
+        // 2026-07-17 移除）。业务侧的 TenantContext 由工作流虚拟线程中的
+        // restoreContext(state) 显式设置（虚拟线程一次性使用，无残留）。
 
         // 提取权限
         List<GrantedAuthority> authorities = extractAuthorities(jwt);

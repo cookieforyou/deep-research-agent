@@ -52,8 +52,7 @@ public class WebScoutAgent {
     private final SearchTools searchTools;
     private final JsonParseUtils jsonUtils;
     private final EvidenceScorer evidenceScorer;
-    private final String systemPrompt;
-    private final String userPromptTemplate;
+    private final DynamicPromptService dynamicPromptService;
 
     /** Fallback: LLM JSON 解析失败时的空选择（触发收集结果降级） */
     private static final SelectionListWrapper FALLBACK =
@@ -70,10 +69,7 @@ public class WebScoutAgent {
         this.searchTools = searchTools;
         this.jsonUtils = jsonUtils;
         this.evidenceScorer = evidenceScorer;
-        String fullTemplate = dynamicPromptService.getTemplateContent("web-scout");
-        PromptParts parts = PromptSplitUtils.split(fullTemplate);
-        this.systemPrompt = parts.system();
-        this.userPromptTemplate = parts.user();
+        this.dynamicPromptService = dynamicPromptService;
     }
 
     /**
@@ -101,6 +97,10 @@ public class WebScoutAgent {
         String queriesContext = String.join("\n", searchPlanQueries.stream()
             .map(q -> "- " + q).toList());
 
+        // 每次调用时加载模板（DynamicPromptService 内置 1min TTL 缓存）→ 支持 DB 热更新免重启
+        PromptParts parts = PromptSplitUtils.split(
+            dynamicPromptService.getTemplateContent("web-scout"));
+
         // 开启工具层证据收集（@Tool 执行与本方法同线程）
         searchTools.beginCollection("WEB");
         String raw = null;
@@ -109,8 +109,8 @@ public class WebScoutAgent {
             raw = chatClient.prompt()
                 .advisors(a -> a.param("agent", "WebScout").param("tier", "flash")
                     .param("skipPiiMask", true))
-                .system(systemPrompt)
-                .user(userPromptTemplate
+                .system(parts.system())
+                .user(parts.user()
                     .replace("{{query}}", query)
                     .replace("{{searchPlanQueries}}", queriesContext))
                 .call()

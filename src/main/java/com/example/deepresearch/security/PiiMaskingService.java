@@ -76,16 +76,43 @@ public class PiiMaskingService {
     static final String BANK_CARD_TOKEN = "<BANK_CARD_";
     private static final String TOKEN_SUFFIX = ">";
 
-    // =========================== Vault & Counters ===========================
+    // =========================== 请求级 Vault ===========================
 
-    /** 令牌 → 原始值映射（线程安全） */
-    private final ConcurrentHashMap<String, String> vault = new ConcurrentHashMap<>();
+    /**
+     * 请求级 PII Vault — 单次 ChatClient 调用内的令牌映射与计数器.
+     * <p>
+     * 每次请求由 {@link PiiMaskingAdvisor#before} 创建独立实例，经 advisor context
+     * 传递到 {@link PiiMaskingAdvisor#after} 还原后随请求丢弃。
+     * <strong>禁止改回单例全局 Vault</strong>（2026-07-16 修复）：全局 Vault 时代
+     * 令牌全局递增且跨会话可还原，租户 B 诱导 LLM 输出 {@code <PHONE_0>} 字面量
+     * 即可还原出租户 A 的真实 PII；且映射无 TTL 无上限，内存无界增长。
+     * </p>
+     */
+    public static final class PiiVault {
+        /** 双向映射: "prefix v:原始值" → 令牌，令牌 → 原始值 */
+        private final Map<String, String> entries = new ConcurrentHashMap<>();
+        /** 各类型令牌计数器（vault 级，请求内从 0 开始） */
+        private final Map<String, AtomicInteger> counters = new ConcurrentHashMap<>();
 
-    /** 各类型令牌计数器 */
-    private final AtomicInteger phoneCounter = new AtomicInteger(0);
-    private final AtomicInteger emailCounter = new AtomicInteger(0);
-    private final AtomicInteger idCardCounter = new AtomicInteger(0);
-    private final AtomicInteger bankCardCounter = new AtomicInteger(0);
+        /** 确定性映射: 同一原始值在本请求内始终得到同一令牌 */
+        private String tokenFor(String tokenPrefix, String piiValue) {
+            AtomicInteger counter = counters.computeIfAbsent(
+                tokenPrefix, k -> new AtomicInteger(0));
+            String token = entries.computeIfAbsent(
+                tokenPrefix + "v:" + piiValue,
+                k -> tokenPrefix + counter.getAndIncrement() + TOKEN_SUFFIX);
+            entries.putIfAbsent(token, piiValue);
+            return token;
+        }
+
+        private String originalFor(String token) {
+            return entries.get(token);
+        }
+
+        public boolean isEmpty() {
+            return entries.isEmpty();
+        }
+    }
 
     private final boolean enabled;
     private final BusinessMetrics businessMetrics;
@@ -107,12 +134,13 @@ public class PiiMaskingService {
     }
 
     /**
-     * 对文本中的 PII 进行标记化处理.
+     * 对文本中的 PII 进行标记化处理（写入请求级 Vault，可经 restore 还原）.
      *
-     * @param text 原始文本
+     * @param text  原始文本
+     * @param vault 请求级 Vault（由 PiiMaskingAdvisor 创建并经 advisor context 传递）
      * @return 标记化结果
      */
-    public TokenizeResult tokenize(String text) {
+    public TokenizeResult tokenize(String text, PiiVault vault) {
         if (!enabled || text == null || text.isBlank()) {
             return TokenizeResult.unchanged(text != null ? text : "");
         }
@@ -121,19 +149,19 @@ public class PiiMaskingService {
         String result = text;
 
         // 手机号 → <PHONE_N>
-        result = replaceWithToken(result, PHONE_PATTERN, PHONE_TOKEN, phoneCounter,
-            "PHONE", tokenTypes);
+        result = replaceWithToken(result, PHONE_PATTERN, PHONE_TOKEN, vault,
+            "PHONE", tokenTypes, null);
 
         // 身份证 → <ID_CARD_N>（GB 11643 校验和过滤误匹配）
-        result = replaceWithToken(result, ID_CARD_PATTERN, ID_CARD_TOKEN, idCardCounter,
+        result = replaceWithToken(result, ID_CARD_PATTERN, ID_CARD_TOKEN, vault,
             "ID_CARD", tokenTypes, PiiMaskingService::validateIdCard);
 
         // 邮箱 → <EMAIL_N>
-        result = replaceWithToken(result, EMAIL_PATTERN, EMAIL_TOKEN, emailCounter,
-            "EMAIL", tokenTypes);
+        result = replaceWithToken(result, EMAIL_PATTERN, EMAIL_TOKEN, vault,
+            "EMAIL", tokenTypes, null);
 
         // 银行卡 → <BANK_CARD_N>（Luhn 算法过滤误匹配）
-        result = replaceWithToken(result, BANK_CARD_PATTERN, BANK_CARD_TOKEN, bankCardCounter,
+        result = replaceWithToken(result, BANK_CARD_PATTERN, BANK_CARD_TOKEN, vault,
             "BANK_CARD", tokenTypes, PiiMaskingService::luhnCheck);
 
         int tokenCount = tokenTypes.size();
@@ -151,6 +179,16 @@ public class PiiMaskingService {
     }
 
     /**
+     * 对文本进行标记化（一次性 Vault，不可还原）.
+     * <p>
+     * 用于日志脱敏等只需要"遮住"而无需还原的场景，Vault 即弃。
+     * </p>
+     */
+    public TokenizeResult tokenize(String text) {
+        return tokenize(text, new PiiVault());
+    }
+
+    /**
      * 便捷方法: 直接返回标记化后的字符串.
      */
     public String tokenizeToString(String text) {
@@ -160,15 +198,18 @@ public class PiiMaskingService {
     /**
      * 还原文本中的令牌为原始 PII 值.
      * <p>
-     * 扫描文本中的 {@code <TYPE_N>} 模式，从 Vault 中查找对应原始值并替换。
-     * 未找到的令牌保持原样。
+     * 扫描文本中的 {@code <TYPE_N>} 模式，从<strong>本请求的</strong> Vault 中
+     * 查找对应原始值并替换。未找到的令牌保持原样。
+     * 跨请求的令牌无法还原（Vault 请求级隔离，防止跨会话 PII 泄漏）。
      * </p>
      *
      * @param tokenizedText 包含令牌的文本（通常来自 LLM 响应）
+     * @param vault         请求级 Vault
      * @return 还原后的文本
      */
-    public String restore(String tokenizedText) {
-        if (tokenizedText == null || tokenizedText.isBlank() || vault.isEmpty()) {
+    public String restore(String tokenizedText, PiiVault vault) {
+        if (tokenizedText == null || tokenizedText.isBlank()
+            || vault == null || vault.isEmpty()) {
             return tokenizedText;
         }
 
@@ -182,7 +223,7 @@ public class PiiMaskingService {
 
         while (matcher.find()) {
             String token = matcher.group();
-            String original = vault.get(token);
+            String original = vault.originalFor(token);
             if (original != null) {
                 matcher.appendReplacement(restored, Matcher.quoteReplacement(original));
                 restoredCount++;
@@ -197,42 +238,16 @@ public class PiiMaskingService {
         return restored.toString();
     }
 
-    /**
-     * 获取 Vault 的不可变副本（用于调试/审计）.
-     */
-    public Map<String, String> getVaultSnapshot() {
-        return Map.copyOf(vault);
-    }
-
-    /**
-     * 清空 Vault 和计数器（用于测试/会话重置）.
-     */
-    public void reset() {
-        vault.clear();
-        phoneCounter.set(0);
-        emailCounter.set(0);
-        idCardCounter.set(0);
-        bankCardCounter.set(0);
-    }
-
     // =========================== 内部方法 ===========================
 
     /**
-     * 使用正则匹配 PII 并替换为类型化令牌.
-     */
-    private String replaceWithToken(String text, Pattern pattern, String tokenPrefix,
-                                     AtomicInteger counter, String piiType,
-                                     List<String> tokenTypes) {
-        return replaceWithToken(text, pattern, tokenPrefix, counter, piiType, tokenTypes, null);
-    }
-
-    /**
-     * 使用正则匹配 PII 并替换为类型化令牌（带校验器，过滤误匹配）.
+     * 使用正则匹配 PII 并替换为类型化令牌（带可选校验器，过滤误匹配）.
      *
+     * @param vault     请求级 Vault（承载令牌映射与计数器）
      * @param validator 可选的校验器，返回 false 的匹配将被跳过（保留原文）
      */
     private String replaceWithToken(String text, Pattern pattern, String tokenPrefix,
-                                     AtomicInteger counter, String piiType,
+                                     PiiVault vault, String piiType,
                                      List<String> tokenTypes,
                                      Predicate<String> validator) {
         Matcher matcher = pattern.matcher(text);
@@ -247,13 +262,8 @@ public class PiiMaskingService {
                 matcher.appendReplacement(sb, Matcher.quoteReplacement(piiValue));
                 continue;
             }
-            // 确定性: 相同值 → 相同令牌
-            String token = vault.computeIfAbsent(
-                tokenPrefix + "v:" + piiValue,
-                k -> tokenPrefix + counter.getAndIncrement() + TOKEN_SUFFIX
-            );
-            // 同时以令牌为 key 存储原始值（用于 restore）
-            vault.putIfAbsent(token, piiValue);
+            // 确定性: 相同值 → 相同令牌（请求内）
+            String token = vault.tokenFor(tokenPrefix, piiValue);
             matcher.appendReplacement(sb, Matcher.quoteReplacement(token));
             tokenTypes.add(piiType);
         }

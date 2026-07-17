@@ -53,8 +53,7 @@ public class LocalScoutAgent {
     private final ChatClient chatClient;
     private final SearchTools searchTools;
     private final JsonParseUtils jsonUtils;
-    private final String systemPrompt;
-    private final String userPromptTemplate;
+    private final DynamicPromptService dynamicPromptService;
 
     /** Fallback: LLM JSON 解析失败时的空选择（触发收集结果降级） */
     private static final SelectionListWrapper FALLBACK =
@@ -69,10 +68,7 @@ public class LocalScoutAgent {
         this.chatClient = chatClient;
         this.searchTools = searchTools;
         this.jsonUtils = jsonUtils;
-        String fullTemplate = dynamicPromptService.getTemplateContent("local-scout");
-        PromptParts parts = PromptSplitUtils.split(fullTemplate);
-        this.systemPrompt = parts.system();
-        this.userPromptTemplate = parts.user();
+        this.dynamicPromptService = dynamicPromptService;
     }
 
     /**
@@ -101,6 +97,10 @@ public class LocalScoutAgent {
             .map(q -> "- " + q).toList());
 
         // 开启工具层证据收集并绑定租户 ID（收集器为 ThreadLocal，@Tool 执行与本方法同线程，
+        // 每次调用时加载模板（DynamicPromptService 内置 1min TTL 缓存）→ 支持 DB 热更新免重启
+        PromptParts parts = PromptSplitUtils.split(
+            dynamicPromptService.getTemplateContent("local-scout"));
+
         // 并发会话天然隔离——禁止用单例字段暂存 tenantId，曾导致跨租户泄漏风险）
         searchTools.beginCollection("LOCAL", tenantId);
         String raw = null;
@@ -109,8 +109,8 @@ public class LocalScoutAgent {
             raw = chatClient.prompt()
                 .advisors(a -> a.param("agent", "LocalScout").param("tier", "flash")
                     .param("skipPiiMask", true))
-                .system(systemPrompt)
-                .user(userPromptTemplate
+                .system(parts.system())
+                .user(parts.user()
                     .replace("{{query}}", query)
                     .replace("{{searchPlanQueries}}", queriesContext)
                     .replace("{{tenantId}}", tenantId))

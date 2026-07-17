@@ -52,8 +52,7 @@ public class WriterAgent {
     private final ChatClient fallbackClient;
     private final ModelFallbackService fallbackService;
     private final JsonParseUtils jsonUtils;
-    private final String systemPrompt;
-    private final String userPromptTemplate;
+    private final DynamicPromptService dynamicPromptService;
     private final PiiMaskingService piiMaskingService;
 
     /** Fallback: 最简报告 */
@@ -74,10 +73,7 @@ public class WriterAgent {
         this.fallbackService = fallbackService;
         this.jsonUtils = jsonUtils;
         this.piiMaskingService = piiMaskingService;
-        String fullTemplate = dynamicPromptService.getTemplateContent("writer");
-        PromptParts parts = PromptSplitUtils.split(fullTemplate);
-        this.systemPrompt = parts.system();
-        this.userPromptTemplate = parts.user();
+        this.dynamicPromptService = dynamicPromptService;
     }
 
     /**
@@ -98,7 +94,11 @@ public class WriterAgent {
             evidencePool != null ? evidencePool.size() : 0);
 
         try {
-            String userPrompt = userPromptTemplate
+            // 每次调用时加载模板（DynamicPromptService 内置 1min TTL 缓存）→ 支持 DB 热更新免重启
+            PromptParts parts = PromptSplitUtils.split(
+                dynamicPromptService.getTemplateContent("writer"));
+
+            String userPrompt = parts.user()
                 .replace("{{query}}", query)
                 .replace("{{reportOutline}}",
                     reportOutline != null ? reportOutline : "# 研究报告")
@@ -111,7 +111,7 @@ public class WriterAgent {
 
             // .entity() 自动 JSON 解析 + 类型映射 + 自校正（降级逻辑内置于 ModelFallbackService）
             WriteResult result = fallbackService.callWithFallback(
-                chatClient, fallbackClient, systemPrompt, userPrompt, "Writer", WriteResult.class);
+                chatClient, fallbackClient, parts.system(), userPrompt, "Writer", WriteResult.class);
             log.debug("[Writer] LLM 解析完成: {} 字, {} 个引用",
                 result.reportContent() != null ? countWords(result.reportContent()) : 0,
                 result.usedCitations() != null ? result.usedCitations().size() : 0);

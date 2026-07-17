@@ -82,23 +82,6 @@ public class ObservabilityConfig {
         return new ObservedAspect(observationRegistry);
     }
 
-    /**
-     * 注册评估分数 Gauge — 供 Prometheus 告警规则 #8 (EvalScoreLow) 使用.
-     * <p>
-     * 返回 {@link AtomicReference} 实例，由 {@code EvalAgent} 在每次评估完成后更新。
-     * Prometheus 每次抓取时读取当前值。
-     * </p>
-     *
-     * @param registry Micrometer MeterRegistry（自动注入）
-     * @return AtomicDouble 实例（供 EvalAgent 注入并更新）
-     */
-    @Bean
-    public AtomicReference<Double> evalScoreGauge(MeterRegistry registry) {
-        AtomicReference<Double> score = new AtomicReference<>(0.0);
-        Gauge.builder("deepresearch.eval.score", score, AtomicReference::get)
-            .description("Latest EvalAgent report quality score (0.0-5.0)")
-            .register(registry);
-        log.info("[Observability] eval.score Gauge 已注册 (初始值=0.0)");
-        return score;
-    }
+    // 注：deepresearch.eval.score Gauge 已迁移到 BusinessMetrics.recordEvalScore()
+    // （按租户 tag 隔离——全局单值时代多租户并发评估互相覆盖，2026-07-17 修复）
 }
