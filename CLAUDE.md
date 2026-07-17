@@ -140,7 +140,7 @@ docs/
 │   ├── introduction/                           # 介绍 + 深度分析 + 全景分析
 │   └── practices/                              # 企业级落地最佳实践
 ├── optimization/                               # 优化记录
-│   ├── Spring AI 2.0 项目适配优化清单.md          # 16 项优化分析
+│   ├── Spring AI 2.0 项目适配优化清单.md       # 16 项优化分析
 │   ├── Spring AI 2.0 项目优化实施方案与更新记录.md  # 8 轮实施记录 + 最终合规状态（38/38 ✅）
 │   └── sql/init_prompt_templates.sql           # Prompt 模板 DB 初始化（9 模板，ON CONFLICT 可重复执行）
 └── day0/
