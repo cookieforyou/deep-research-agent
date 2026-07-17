@@ -166,7 +166,7 @@ START → intent_route ──[direct]──→ direct_answer → END
 |:---|:---|:---|:---|
 | intent_route | IntentRouterAgent | Flash T=0.0 | 意图分类 (direct/research)，`.entity(RouteResult.class)` |
 | [cache] | SemanticCacheService | - | 语义缓存检查（Milvus 向量相似度 > 阈值 → PG 获取完整报告） |
-| direct_answer | ChatClient 直接调用 | Flash | 简单回答（不走研究流程），DynamicPromptService 加载模板 |
+| direct_answer | directAnswerClient（AgentBundle 全链） | Flash T=0.3 | 简单回答（不走研究流程），DynamicPromptService 加载模板；仅将回答写入短期记忆，不产生 PG/Milvus/Eval/画像记录 |
 | plan | PlannerAgent | Pro T=0.3 → Flash fallback | 任务拆解+搜索计划（接收 memoryContext），`.entity(PlanResult.class)` |
 | dual_search | WebScoutAgent + LocalScoutAgent | Flash T=0.4 | 双源全并行检索（LLM 自主调用 @Tool，原始结果由 SearchTools 工具层收集，LLM 只输出 selections） |
 | filter | EvidenceDeduplicationService | 代码级 | URL/标题去重+域名过滤+评分截断（空证据池 → 零证据熔断） |
@@ -358,7 +358,8 @@ cd observability && docker compose up -d
 | —— Agent 构造器缓存 Prompt 导致 DB 热更新失效（改模板必须重启，与热更新声明矛盾） | ✅ 已修复 — 8 个 Agent 改为每次调用时 `getTemplateContent()`（内置 1min TTL 缓存，开销可忽略） | 2026-07-17 |
 | —— P2: evalScoreGauge 全局单值多租户混写 + TokenUsageTracker 失败会话统计残留 | ✅ 已修复 — Gauge 迁移到 `BusinessMetrics.recordEvalScore(tenantId, score)` 按租户 tag 隔离（指标名不变，兼容告警规则）；clearSession 挪到 finally 统一清理 | 2026-07-17 |
 | **direct_answer 绕过企业级 Advisor 链**（现场 build ChatClient 只挂 TokenTracking → 用户 PII 原文直发 DeepSeek API、无限流/护栏/审计，PII 端到端测试暴露） | ✅ 已修复 — 新增 `directAnswerClient` Bean（AgentBundle 全链），workflow 节点改为注入使用 | 2026-07-17 |
-| direct 会话污染画像与评估指标（空报告跑 Eval 判 1.0 分写入租户 gauge 误触发 EvalScoreLow；"帮我记电话"类 query 进 interests） | ✅ 已修复 — interests 更新与 Eval 均 gate 到 research 意图（Eval 另要求报告非空） | 2026-07-17 |
+| direct 会话污染持久化数据与评估指标（words=0 空 research_history、"帮我记电话"类 query 进 interests、空报告跑 Eval 判 1.0 分写入租户 gauge 误触发 EvalScoreLow） | ✅ 已修复 — `persistResearchMemory` 开头按 intent 整体拦截：direct 会话仅将回答写入短期记忆（对话上下文），不产生 PG/Milvus/Eval/画像记录 | 2026-07-17 |
+| **PII 三段论端到端验证闭环** | ✅ 已验证 — (1) 出境脱敏+还原：direct 请求日志见"标记化完成"+"还原完成"，DeepSeek 只见 `<PHONE_0>`；(2) 跨请求不可还原：注入 `<PHONE_0>` 字面量保持原样；(3) 内部存储保留原文：Redis 短期记忆为原文，再注入 prompt 时经 Advisor 二次脱敏 | 2026-07-17 |
 
 ### Milvus 集合 Schema Migration 注意
 语义缓存功能需要 `session_id`、`query`、`chunk_index` 三个字段。如果 Milvus 集合是 2026-07-08 之前创建的，需重建：

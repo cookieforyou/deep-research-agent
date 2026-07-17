@@ -74,8 +74,6 @@ public class ResearchController {
      * <pre>{@code
      * {
      *   "query": "2026年中国新能源汽车市场趋势分析",
-     *   "userId": "user_001",
-     *   "tenantId": "tenant_001",
      *   "deepResearch": true
      * }
      * }</pre>
