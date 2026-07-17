@@ -11,7 +11,6 @@ import com.example.deepresearch.api.dto.ProgressEvent;
 import com.example.deepresearch.api.dto.ProgressEvent.ResearchStage;
 import com.example.deepresearch.common.config.DeepResearchProperties;
 import com.example.deepresearch.common.model.*;
-import com.example.deepresearch.common.observability.TokenTrackingAdvisor;
 import com.example.deepresearch.common.observability.WorkflowTracingHelper;
 import com.example.deepresearch.memory.MemoryManager;
 import com.example.deepresearch.rag.CitationValidator;
@@ -25,7 +24,6 @@ import org.bsc.langgraph4j.action.AsyncNodeAction;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.stereotype.Component;
 
 import com.example.deepresearch.common.util.PromptSplitUtils;
@@ -86,10 +84,9 @@ public class ResearchWorkflow {
     private final ProgressEventPublisher progressPublisher;
     private final ExecutorService virtualThreadExecutor;
     private final DeepResearchProperties properties;
-    private final ChatModel chatModel;
+    private final ChatClient directAnswerClient;
     private final DynamicPromptService dynamicPromptService;
     private final MemoryManager memoryManager;
-    private final TokenTrackingAdvisor tokenTrackingAdvisor;
     private final WorkflowTracingHelper tracingHelper;
 
     /** 编译后的可执行工作流 */
@@ -104,10 +101,10 @@ public class ResearchWorkflow {
         ProgressEventPublisher progressPublisher,
         ExecutorService virtualThreadExecutor,
         DeepResearchProperties properties,
-        ChatModel chatModel,
+        @org.springframework.beans.factory.annotation.Qualifier("directAnswerClient")
+        ChatClient directAnswerClient,
         DynamicPromptService dynamicPromptService,
         MemoryManager memoryManager,
-        TokenTrackingAdvisor tokenTrackingAdvisor,
         WorkflowTracingHelper tracingHelper
     ) {
         this.intentRouter = intentRouter;
@@ -121,10 +118,9 @@ public class ResearchWorkflow {
         this.progressPublisher = progressPublisher;
         this.virtualThreadExecutor = virtualThreadExecutor;
         this.properties = properties;
-        this.chatModel = chatModel;
+        this.directAnswerClient = directAnswerClient;
         this.dynamicPromptService = dynamicPromptService;
         this.memoryManager = memoryManager;
-        this.tokenTrackingAdvisor = tokenTrackingAdvisor;
         this.tracingHelper = tracingHelper;
     }
 
@@ -257,11 +253,10 @@ public class ResearchWorkflow {
                         PromptParts parts = PromptSplitUtils.split(promptTemplate);
                         String userPrompt = parts.user().replace("{{query}}", state.query());
 
-                        // 调用 LLM（system/user 分离，使用 Flash 模型快速低成本）
-                        // 注册 TokenTrackingAdvisor 确保 Token 用量可追踪
-                        String directAnswer = ChatClient.builder(chatModel)
-                            .defaultAdvisors(tokenTrackingAdvisor)
-                            .build()
+                        // 调用 LLM（system/user 分离，AgentBundle 全链 Advisor：
+                        // PII 脱敏/限流/护栏/Token 追踪/审计——禁止在此现场 build ChatClient，
+                        // 曾因只挂 TokenTrackingAdvisor 导致用户 PII 原文直发 DeepSeek API）
+                        String directAnswer = directAnswerClient
                             .prompt()
                             .advisors(a -> a.param("agent", "DirectAnswer").param("tier", "flash"))
                             .system(parts.system())

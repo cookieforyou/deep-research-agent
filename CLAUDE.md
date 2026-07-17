@@ -357,6 +357,8 @@ cd observability && docker compose up -d
 | —— P1: TenantContext 从不 clear() + converter 在池化 netty 线程上 set（残留跨请求） | ✅ 已修复 — 移除 converter 的 TenantContext 写入，业务侧由工作流虚拟线程 restoreContext 显式设置（一次性线程无残留） | 2026-07-17 |
 | —— Agent 构造器缓存 Prompt 导致 DB 热更新失效（改模板必须重启，与热更新声明矛盾） | ✅ 已修复 — 8 个 Agent 改为每次调用时 `getTemplateContent()`（内置 1min TTL 缓存，开销可忽略） | 2026-07-17 |
 | —— P2: evalScoreGauge 全局单值多租户混写 + TokenUsageTracker 失败会话统计残留 | ✅ 已修复 — Gauge 迁移到 `BusinessMetrics.recordEvalScore(tenantId, score)` 按租户 tag 隔离（指标名不变，兼容告警规则）；clearSession 挪到 finally 统一清理 | 2026-07-17 |
+| **direct_answer 绕过企业级 Advisor 链**（现场 build ChatClient 只挂 TokenTracking → 用户 PII 原文直发 DeepSeek API、无限流/护栏/审计，PII 端到端测试暴露） | ✅ 已修复 — 新增 `directAnswerClient` Bean（AgentBundle 全链），workflow 节点改为注入使用 | 2026-07-17 |
+| direct 会话污染画像与评估指标（空报告跑 Eval 判 1.0 分写入租户 gauge 误触发 EvalScoreLow；"帮我记电话"类 query 进 interests） | ✅ 已修复 — interests 更新与 Eval 均 gate 到 research 意图（Eval 另要求报告非空） | 2026-07-17 |
 
 ### Milvus 集合 Schema Migration 注意
 语义缓存功能需要 `session_id`、`query`、`chunk_index` 三个字段。如果 Milvus 集合是 2026-07-08 之前创建的，需重建：

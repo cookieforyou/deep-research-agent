@@ -348,8 +348,11 @@ public class ResearchOrchestratorService {
             // 提取研究主题（截取 query 前 100 字符作为主题标签）
             String topic = query.length() > 100 ? query.substring(0, 100) : query;
 
-            // 更新用户画像（兴趣、最近主题、研究计数）
-            memoryManager.recordResearchCompletion(userId, tenantId, topic);
+            // 更新用户画像（兴趣、最近主题、研究计数）—— 仅研究意图
+            // direct 会话的 query（如"帮我记一下电话"）不是研究主题，会污染画像
+            if (state.isDeepResearch()) {
+                memoryManager.recordResearchCompletion(userId, tenantId, topic);
+            }
 
             // 零证据降级判定：研究流程证据池为空说明报告仅基于模型自身知识（无引用支撑）
             // direct 意图不走检索流程，evidencePool 天然为空，不属于降级
@@ -383,8 +386,12 @@ public class ResearchOrchestratorService {
 
             log.info("[Orchestrator] 记忆持久化完成: sessionId={}", sessionId);
 
-            // === 异步 LLM 评估（fire-and-forget，不阻塞主流程） ===
-            triggerAsyncEval(sessionId, query, report, state);
+            // === 异步 LLM 评估（fire-and-forget，仅研究意图且报告非空） ===
+            // direct 会话报告为空，评估无意义且零引用惩罚会把 1.0 分写入租户 gauge，
+            // 持续误触发 EvalScoreLow 告警（2026-07-17 修复）
+            if (state.isDeepResearch() && report != null && !report.isBlank()) {
+                triggerAsyncEval(sessionId, query, report, state);
+            }
 
             // === 异步偏好提取（fire-and-forget，仅研究意图触发） ===
             if (state.isDeepResearch()) {

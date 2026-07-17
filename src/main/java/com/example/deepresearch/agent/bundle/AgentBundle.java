@@ -240,4 +240,19 @@ public class AgentBundle {
             .build();
     }
 
+    /** DirectAnswer — direct 意图的快速回答 (Flash, T=0.3).
+     *  <p><strong>必须走本 Bean</strong>：曾在 workflow 节点内现场 build ChatClient
+     *  只挂 TokenTrackingAdvisor，绕过 PII 脱敏/限流/护栏/审计全链
+     *  （用户 PII 原文直发 DeepSeek API，2026-07-17 修复）。</p> */
+    @Bean("directAnswerClient")
+    public ChatClient directAnswerClient(ChatModel chatModel) {
+        log.info("注册 DirectAnswer ChatClient (Flash, T=0.3)");
+        return createBuilder(chatModel)
+            .defaultOptions(DeepSeekChatOptions.builder()
+                .model(DeepSeekApi.ChatModel.DEEPSEEK_V4_FLASH)
+                .temperature(0.3)
+                .maxTokens(2048))
+            .build();
+    }
+
 }
