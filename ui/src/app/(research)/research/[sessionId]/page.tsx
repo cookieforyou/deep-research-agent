@@ -64,12 +64,14 @@ export default function ResearchDetailPage({
 
   const report = reportData?.report || '';
   const metadata = reportData?.metadata;
+  const isReportReady = !reportLoading;
   // 报告已存在 → 历史记录，无需 SSE
   const isAlreadyCompleted = !!report;
 
-  // 仅当报告尚未完成时才连接 SSE（新发起的研究）
+  // 仅当报告查询完成且未找到已完成报告时，才连接 SSE（新发起的研究）
+  // 关键：loading 期间不启 SSE，避免历史记录也短暂连 SSE
   const { events, status, connect, isCompleted, hasError, isCacheHit } =
-    useResearchSse(sessionId, !isAlreadyCompleted);
+    useResearchSse(sessionId, isReportReady && !isAlreadyCompleted);
 
   const showReport = (isCompleted || isAlreadyCompleted || isCacheHit) && !reportLoading && !!report;
 
@@ -153,7 +155,9 @@ export default function ResearchDetailPage({
                 离线
               </Badge>
             )}
-            <SseStatusBadge status={status} onReconnect={connect} />
+            {!isAlreadyCompleted && (
+              <SseStatusBadge status={status} onReconnect={connect} />
+            )}
           </div>
         </div>
 
