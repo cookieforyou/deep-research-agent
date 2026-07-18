@@ -1,8 +1,12 @@
 'use client';
 
 import { RadarChart, Radar, PolarGrid, PolarAngleAxis, ResponsiveContainer } from 'recharts';
+import type { ComponentType } from 'react';
 import { EVAL_DIMENSIONS } from '@/lib/constants';
 import type { EvalResult } from '@/lib/types';
+
+// recharts 3.x 组件返回 ReactNode（含 undefined），React 19 JSX 要求 Element | null
+const PAxis = PolarAngleAxis as ComponentType<any>;
 
 interface MiniRadarChartProps {
   evalResult: EvalResult;
@@ -26,7 +30,7 @@ export function MiniRadarChart({ evalResult, size = 64 }: MiniRadarChartProps) {
       <ResponsiveContainer width="100%" height="100%">
         <RadarChart data={data} cx="50%" cy="50%" outerRadius="55%">
           <PolarGrid stroke="rgba(0,0,0,0.1)" strokeWidth={0.5} />
-          <PolarAngleAxis
+          <PAxis
             dataKey="dimension"
             tick={{ fontSize: 7, fill: 'rgba(0,0,0,0.4)' }}
             tickLine={false}

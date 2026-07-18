@@ -5,6 +5,9 @@ import { createSseConnection } from '@/lib/sse';
 import { useSseStore } from '@/stores/sse-store';
 import type { ProgressEvent, SseConnectionStatus } from '@/lib/types';
 
+/** 稳定空数组引用，避免 zustand selector 每次返回新引用触发无限重渲染 */
+const EMPTY_EVENTS: ProgressEvent[] = [];
+
 interface UseResearchSseReturn {
   /** 当前会话的全部 SSE 事件 */
   events: ProgressEvent[];
@@ -40,7 +43,7 @@ export function useResearchSse(sessionId: string): UseResearchSseReturn {
   const addEvent = useSseStore((s) => s.addEvent);
   const setConnected = useSseStore((s) => s.setConnected);
   const setDisconnected = useSseStore((s) => s.setDisconnected);
-  const events = useSseStore((s) => s.eventsMap[sessionId] || []);
+  const events = useSseStore((s) => s.eventsMap[sessionId] || EMPTY_EVENTS);
 
   const connect = useCallback(() => {
     // 先断开已有连接

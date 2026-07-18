@@ -65,12 +65,10 @@ export function HistoryCard({ item, onDelete, onReRun }: HistoryCardProps) {
 
           {/* 操作按钮（hover 显示） */}
           <div className="flex items-center gap-1 mt-2 opacity-0 group-hover:opacity-100 transition-opacity">
-            <Link href={`/research/${item.sessionId}`}>
-              <Button variant="ghost" size="sm" className="h-7 text-xs">
-                <ExternalLink className="h-3 w-3 mr-1" />
-                查看
-              </Button>
-            </Link>
+            <span className="inline-flex items-center gap-1 h-7 px-2 text-xs rounded-md">
+              <ExternalLink className="h-3 w-3" />
+              查看
+            </span>
             {onReRun && (
               <Button
                 variant="ghost"
