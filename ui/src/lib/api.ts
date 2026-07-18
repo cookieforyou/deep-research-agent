@@ -12,6 +12,11 @@ import { ApiError } from './types';
 
 const API_BASE = '/api';
 
+/** Casdoor OAuth2 Token 端点 */
+const AUTH_BASE = process.env.NEXT_PUBLIC_AUTH_URL || 'https://auth.hyperinfer.top';
+/** Casdoor Client ID */
+const AUTH_CLIENT_ID = process.env.NEXT_PUBLIC_AUTH_CLIENT_ID || '9172d870f69845e615f5';
+
 // =========================== 基础请求 ===========================
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
@@ -159,3 +164,55 @@ export const userApi = {
     return request<UserProfile>(`/user/profile?userId=${userId}&tenantId=${tenantId}`);
   },
 };
+
+// =========================== 认证 API ===========================
+
+export interface AuthTokenResponse {
+  access_token: string;
+  id_token: string;
+  refresh_token: string;
+  token_type: string;
+  expires_in: number;
+  scope: string;
+}
+
+export interface AuthErrorResponse {
+  error: string;
+  error_description?: string;
+}
+
+/**
+ * Casdoor OAuth2 Password Grant 登录。
+ *
+ * POST https://auth.hyperinfer.top/api/login/oauth/access_token
+ * Content-Type: application/x-www-form-urlencoded
+ */
+export async function loginWithPassword(
+  username: string,
+  password: string,
+): Promise<AuthTokenResponse> {
+  const params = new URLSearchParams();
+  params.set('grant_type', 'password');
+  params.set('scope', 'read');
+  params.set('client_id', AUTH_CLIENT_ID);
+  params.set('username', username);
+  params.set('password', password);
+
+  const res = await fetch(`${AUTH_BASE}/api/login/oauth/access_token`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: params.toString(),
+  });
+
+  if (!res.ok) {
+    const err: AuthErrorResponse = await res.json().catch(() => ({
+      error: 'network_error',
+      error_description: `HTTP ${res.status}: ${res.statusText}`,
+    }));
+    throw new Error(err.error_description || err.error || '登录失败');
+  }
+
+  return res.json() as Promise<AuthTokenResponse>;
+}

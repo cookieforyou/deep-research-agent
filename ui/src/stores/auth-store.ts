@@ -16,9 +16,9 @@ import {
 interface AuthState {
   /** JWT Token 字符串 */
   token: string | null;
-  /** 从 JWT payload 解析的用户 ID */
+  /** 从 JWT payload 解析的用户 ID（owner/name） */
   userId: string;
-  /** 从 JWT payload 解析的租户 ID */
+  /** 从 JWT payload 解析的租户 ID（owner） */
   tenantId: string;
   /** 是否已认证 */
   isAuthenticated: boolean;
@@ -36,11 +36,8 @@ interface AuthState {
 /**
  * 认证状态管理
  *
- * 开发模式 (NEXT_PUBLIC_DEV_MODE=true):
- *   使用 mock token，userId="dev-user", tenantId="default", isAdmin=true
- *
- * 生产模式:
- *   从 localStorage 读取 JWT，解析 userId/tenantId/authorities
+ * 从 localStorage 读取 Casdoor JWT，解析 userId（owner/name）、
+ * tenantId（owner）、isAdmin。
  */
 export const useAuthStore = create<AuthState>((set) => ({
   token: null,
@@ -55,11 +52,24 @@ export const useAuthStore = create<AuthState>((set) => ({
       setRefreshToken(refreshToken);
     }
     const decoded = decodeToken(token);
+    // userId = owner/name（对齐后端 resolveUserId）
+    const userId =
+      decoded?.owner && decoded?.name
+        ? `${decoded.owner}/${decoded.name}`
+        : decoded?.sub || 'anonymous';
+    // tenantId = owner（Casdoor JWT 无 tenant_id claim）
+    const tenantId = decoded?.owner || 'default';
+    // isAdmin: Casdoor 有 isAdmin 字段，回退 authorities
+    const admin =
+      typeof decoded?.isAdmin === 'boolean'
+        ? decoded.isAdmin
+        : decoded?.authorities?.includes('ROLE_ADMIN') ?? false;
+
     set({
       token,
-      userId: decoded?.sub || 'anonymous',
-      tenantId: decoded?.tenant_id || 'default',
-      isAdmin: decoded?.authorities?.includes('ROLE_ADMIN') ?? false,
+      userId,
+      tenantId,
+      isAdmin: admin,
       isAuthenticated: true,
     });
   },
@@ -76,27 +86,24 @@ export const useAuthStore = create<AuthState>((set) => ({
   },
 
   initFromStorage: () => {
-    // 开发模式：直接使用 mock 身份
-    if (process.env.NEXT_PUBLIC_DEV_MODE === 'true') {
-      set({
-        token: getToken(),
-        userId: getUserId(),
-        tenantId: getTenantId(),
-        isAdmin: isAdmin(),
-        isAuthenticated: true,
-      });
-      return;
-    }
-
-    // 生产模式：从 localStorage 恢复
     const token = getToken();
     if (token && !isTokenExpired(token)) {
       const decoded = decodeToken(token);
+      const userId =
+        decoded?.owner && decoded?.name
+          ? `${decoded.owner}/${decoded.name}`
+          : decoded?.sub || 'anonymous';
+      const tenantId = decoded?.owner || 'default';
+      const admin =
+        typeof decoded?.isAdmin === 'boolean'
+          ? decoded.isAdmin
+          : decoded?.authorities?.includes('ROLE_ADMIN') ?? false;
+
       set({
         token,
-        userId: decoded?.sub || 'anonymous',
-        tenantId: decoded?.tenant_id || 'default',
-        isAdmin: decoded?.authorities?.includes('ROLE_ADMIN') ?? false,
+        userId,
+        tenantId,
+        isAdmin: admin,
         isAuthenticated: true,
       });
     } else if (token) {

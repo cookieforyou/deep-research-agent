@@ -1,8 +1,17 @@
 /**
  * JWT Token 管理
  *
- * 开发模式 (DEV_MODE=true): 使用 mock token 绕过认证。
- * 生产模式: localStorage 存储 JWT，支持自动刷新。
+ * 集成 Casdoor OAuth2 Password Grant 认证。
+ * localStorage 存储 JWT，支持自动刷新。
+ *
+ * JWT Payload 关键字段（Casdoor）:
+ *   - owner: 组织/租户标识（如 "tenant_002"）
+ *   - name:  用户名（如 "user_10000"）
+ *   - sub:   UUID（无意义，不可用作 userId）
+ *   - isAdmin: 是否管理员
+ *
+ * userId 解析: `${owner}/${name}`（对齐后端 TenantJwtAuthenticationConverter.resolveUserId()）
+ * tenantId 解析: `owner`（Casdoor JWT 无 tenant_id claim，回退 owner）
  */
 
 const TOKEN_KEY = 'deepresearch_token';
@@ -12,7 +21,6 @@ const REFRESH_TOKEN_KEY = 'deepresearch_refresh_token';
 
 export function getToken(): string | null {
   if (typeof window === 'undefined') return null;
-  if (process.env.NEXT_PUBLIC_DEV_MODE === 'true') return getDevToken();
   return localStorage.getItem(TOKEN_KEY);
 }
 
@@ -36,10 +44,19 @@ export function setRefreshToken(token: string): void {
 // =========================== JWT 解析 ===========================
 
 interface JwtPayload {
+  /** Casdoor UUID — 无意义，不可用作 userId */
   sub: string;
-  tenant_id?: string;
+  /** 组织/租户（如 "tenant_002"） */
+  owner?: string;
+  /** 用户名（如 "user_10000"） */
+  name?: string;
+  /** 是否管理员 */
+  isAdmin?: boolean;
+  /** 过期时间 (Unix timestamp) */
   exp: number;
+  /** 签发时间 */
   iat: number;
+  /** Spring Security authorities（如果有） */
   authorities?: string[];
   [key: string]: unknown;
 }
@@ -71,7 +88,6 @@ let refreshPromise: Promise<string | null> | null = null;
  */
 export async function refreshAccessToken(): Promise<string | null> {
   if (typeof window === 'undefined') return null;
-  if (process.env.NEXT_PUBLIC_DEV_MODE === 'true') return getDevToken();
 
   // 复用进行中的刷新请求
   if (refreshPromise) return refreshPromise;
@@ -117,52 +133,48 @@ export async function getValidToken(): Promise<string | null> {
   return refreshAccessToken();
 }
 
-// =========================== 开发模式 ===========================
+// =========================== 用户信息提取 ===========================
 
-let cachedDevToken: string | null = null;
-
-function getDevToken(): string {
-  if (cachedDevToken) return cachedDevToken;
-  const header = btoa(JSON.stringify({ alg: 'none', typ: 'JWT' }));
-  const devPayload = {
-    sub: process.env.NEXT_PUBLIC_DEV_USER_ID || 'dev-user',
-    tenant_id: process.env.NEXT_PUBLIC_DEV_TENANT_ID || 'default',
-    authorities: ['ROLE_USER', 'ROLE_ADMIN'],
-    exp: 9999999999,
-    iat: 1,
-  };
-  const payload = btoa(JSON.stringify(devPayload));
-  cachedDevToken = `${header}.${payload}.dev-signature`;
-  return cachedDevToken;
-}
-
-/** 从 JWT 中提取 userId */
+/**
+ * 从 JWT 中提取 userId。
+ * 对齐后端 TenantJwtAuthenticationConverter.resolveUserId():
+ *   userId = owner/name（如 "tenant_002/user_10000"）
+ * 回退到 sub（非 Casdoor JWT 时）。
+ */
 export function getUserId(): string {
   const token = getToken();
   if (!token) return 'anonymous';
-  if (process.env.NEXT_PUBLIC_DEV_MODE === 'true') {
-    return process.env.NEXT_PUBLIC_DEV_USER_ID || 'dev-user';
-  }
   const decoded = decodeToken(token);
-  return decoded?.sub || 'anonymous';
+  if (!decoded) return 'anonymous';
+  if (decoded.owner && decoded.name) {
+    return `${decoded.owner}/${decoded.name}`;
+  }
+  return decoded.sub || 'anonymous';
 }
 
-/** 从 JWT 中提取 tenantId */
+/**
+ * 从 JWT 中提取 tenantId。
+ * 对齐后端 TenantJwtAuthenticationConverter.resolveTenantId():
+ *   tenant_id claim 优先 → 回退 owner
+ * Casdoor JWT 无 tenant_id claim，使用 owner。
+ */
 export function getTenantId(): string {
   const token = getToken();
   if (!token) return 'default';
-  if (process.env.NEXT_PUBLIC_DEV_MODE === 'true') {
-    return process.env.NEXT_PUBLIC_DEV_TENANT_ID || 'default';
-  }
   const decoded = decodeToken(token);
-  return decoded?.tenant_id || 'default';
+  if (!decoded) return 'default';
+  return decoded.owner || 'default';
 }
 
-/** 检查是否为 admin */
+/**
+ * 检查是否为 admin。
+ * Casdoor JWT 有 isAdmin 字段；非 Casdoor JWT 回退检查 authorities。
+ */
 export function isAdmin(): boolean {
   const token = getToken();
   if (!token) return false;
-  if (process.env.NEXT_PUBLIC_DEV_MODE === 'true') return true;
   const decoded = decodeToken(token);
-  return decoded?.authorities?.includes('ROLE_ADMIN') ?? false;
+  if (!decoded) return false;
+  if (typeof decoded.isAdmin === 'boolean') return decoded.isAdmin;
+  return decoded.authorities?.includes('ROLE_ADMIN') ?? false;
 }

@@ -16,9 +16,11 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const router = useRouter();
 
   useEffect(() => {
-    // 开发模式自动跳过
-    if (process.env.NEXT_PUBLIC_DEV_MODE === 'true') return;
-    if (isAuthenticated && !isAdmin) {
+    if (!isAuthenticated) {
+      router.replace('/login');
+      return;
+    }
+    if (!isAdmin) {
       router.replace('/');
     }
   }, [isAuthenticated, isAdmin, router]);
