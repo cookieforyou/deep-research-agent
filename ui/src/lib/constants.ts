@@ -10,7 +10,6 @@ export const STAGE_LABELS: Record<ResearchStage, string> = {
   LOCAL_SEARCHING: '本地检索',
   JUDGING: '证据过滤',
   ANALYZING: '分析归纳',
-  REFLECTING: '反思补搜',
   WRITING: '报告撰写',
   COMPLETED: '研究完成',
   CACHE_HIT: '缓存命中',
@@ -27,7 +26,6 @@ export const STAGE_ICONS: Record<ResearchStage, string> = {
   LOCAL_SEARCHING: 'Database',
   JUDGING: 'Scale',
   ANALYZING: 'Brain',
-  REFLECTING: 'RefreshCw',
   WRITING: 'PenLine',
   COMPLETED: 'CheckCircle',
   CACHE_HIT: 'Zap',
@@ -44,7 +42,6 @@ export const STAGE_COLORS: Record<ResearchStage, string> = {
   LOCAL_SEARCHING: 'var(--workflow-search)',
   JUDGING: 'var(--workflow-filter)',
   ANALYZING: 'var(--workflow-analyze)',
-  REFLECTING: 'var(--workflow-write)',
   WRITING: 'var(--workflow-write)',
   COMPLETED: 'var(--workflow-completed)',
   CACHE_HIT: 'var(--workflow-completed)',
@@ -53,7 +50,7 @@ export const STAGE_COLORS: Record<ResearchStage, string> = {
   ERROR: 'var(--workflow-error)',
 };
 
-/** 工作流节点顺序（用于 Timeline 从上到下排列） */
+/** 工作流节点顺序（对齐后端 DAG：intent→plan→dual_search→filter→analyze→write） */
 export const WORKFLOW_NODE_ORDER: ResearchStage[] = [
   'INTENT_ROUTING',
   'PLANNING',
@@ -61,7 +58,6 @@ export const WORKFLOW_NODE_ORDER: ResearchStage[] = [
   'LOCAL_SEARCHING',
   'JUDGING',
   'ANALYZING',
-  'REFLECTING',
   'WRITING',
   'COMPLETED',
 ];

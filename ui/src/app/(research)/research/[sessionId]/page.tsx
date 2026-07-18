@@ -40,8 +40,11 @@ const EvalRadarChart = dynamic(
 );
 
 /**
- * 研究详情页 — 完整实现 (Phase 3-5)
- * Phase 7: 动态导入 + 网络检测 + 代码分割优化
+ * 研究详情页。
+ *
+ * 两种入口：
+ *   - 新发起的研究：连接 SSE 流获取实时进度 → 完成后拉取报告
+ *   - 历史记录查看：直接拉取报告（跳过 SSE），报告立即可用
  */
 export default function ResearchDetailPage({
   params,
@@ -50,23 +53,28 @@ export default function ResearchDetailPage({
 }) {
   const { sessionId } = use(params);
   const router = useRouter();
-  const { events, status, connect, isCompleted, hasError, isCacheHit } =
-    useResearchSse(sessionId);
   const { online } = useNetworkStatus();
 
-  // 研究完成后拉取完整报告
+  // 始终尝试拉取报告（历史记录立即可用，新研究等完成后才有）
   const {
     data: reportData,
     isLoading: reportLoading,
     isError: reportError,
-  } = useReportData(sessionId, isCompleted || isCacheHit);
+  } = useReportData(sessionId, true);
 
   const report = reportData?.report || '';
   const metadata = reportData?.metadata;
-  const showReport = (isCompleted || isCacheHit) && !reportLoading && report;
+  // 报告已存在 → 历史记录，无需 SSE
+  const isAlreadyCompleted = !!report;
+
+  // 仅当报告尚未完成时才连接 SSE（新发起的研究）
+  const { events, status, connect, isCompleted, hasError, isCacheHit } =
+    useResearchSse(sessionId, !isAlreadyCompleted);
+
+  const showReport = (isCompleted || isAlreadyCompleted || isCacheHit) && !reportLoading && !!report;
 
   // 异步拉取评估分数（轮询 5s 间隔）
-  const evalResult = useEvalData(sessionId, isCompleted || isCacheHit);
+  const evalResult = useEvalData(sessionId, isCompleted || isAlreadyCompleted || isCacheHit);
 
   const handleRetry = () => {
     router.push('/');
@@ -158,7 +166,7 @@ export default function ResearchDetailPage({
             </div>
           )}
 
-          {(isCompleted || isCacheHit) && reportLoading && (
+          {(isCompleted || isAlreadyCompleted) && reportLoading && (
             <div className="max-w-3xl">
               <ReportSkeleton />
             </div>
@@ -206,7 +214,7 @@ export default function ResearchDetailPage({
             />
           )}
 
-          {!isCompleted && !hasError && !isCacheHit && events.length === 0 && (
+          {!isCompleted && !hasError && !isCacheHit && !isAlreadyCompleted && events.length === 0 && (
             <div className="flex items-center justify-center py-24">
               <div className="text-center space-y-4">
                 <div className="h-10 w-10 animate-spin rounded-full border-4 border-primary border-t-transparent mx-auto" />

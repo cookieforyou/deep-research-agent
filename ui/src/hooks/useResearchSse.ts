@@ -17,8 +17,6 @@ interface UseResearchSseReturn {
   connect: () => void;
   /** 断开连接 */
   disconnect: () => void;
-  /** 获取最新一条指定阶段的事件 */
-  getLatestByStage: (stage: string) => ProgressEvent | undefined;
   /** 是否研究已完成 */
   isCompleted: boolean;
   /** 是否发生错误 */
@@ -30,15 +28,15 @@ interface UseResearchSseReturn {
 /**
  * 研究 SSE 连接 Hook
  *
- * 在组件挂载时自动建立 SSE 连接，接收后端推送的进度事件。
- * 组件卸载时自动断开。
- *
  * @param sessionId 研究会话 ID
+ * @param enabled   是否启用 SSE（默认 true）。历史记录查看时应传 false。
  */
-export function useResearchSse(sessionId: string): UseResearchSseReturn {
+export function useResearchSse(
+  sessionId: string,
+  enabled = true,
+): UseResearchSseReturn {
   const [status, setStatus] = useState<SseConnectionStatus>('idle');
   const abortRef = useRef<{ abort: () => void } | null>(null);
-  const reconnectAttemptRef = useRef(0);
 
   const addEvent = useSseStore((s) => s.addEvent);
   const setConnected = useSseStore((s) => s.setConnected);
@@ -46,7 +44,6 @@ export function useResearchSse(sessionId: string): UseResearchSseReturn {
   const events = useSseStore((s) => s.eventsMap[sessionId] || EMPTY_EVENTS);
 
   const connect = useCallback(() => {
-    // 先断开已有连接
     abortRef.current?.abort();
 
     setStatus('connecting');
@@ -70,7 +67,6 @@ export function useResearchSse(sessionId: string): UseResearchSseReturn {
 
       onReconnecting: (attempt, delayMs) => {
         setStatus('connecting');
-        reconnectAttemptRef.current = attempt;
         console.log(`[useResearchSse] 重连 ${attempt}, ${delayMs}ms 后重试`);
       },
     });
@@ -85,21 +81,15 @@ export function useResearchSse(sessionId: string): UseResearchSseReturn {
     setDisconnected(sessionId);
   }, [sessionId, setDisconnected]);
 
-  // 组件挂载时自动连接，卸载时断开
+  // 组件挂载时自动连接（enabled=false 时跳过），卸载时断开
   useEffect(() => {
+    if (!enabled) return;
     connect();
     return () => {
       abortRef.current?.abort();
       setDisconnected(sessionId);
     };
-  }, [connect, sessionId, setDisconnected]);
-
-  const getLatestByStage = useCallback(
-    (stage: string): ProgressEvent | undefined => {
-      return [...events].reverse().find((e) => e.stage === stage);
-    },
-    [events],
-  );
+  }, [enabled, connect, sessionId, setDisconnected]);
 
   const isCompleted = events.some((e) => e.stage === 'COMPLETED');
   const hasError = events.some((e) => e.stage === 'ERROR');
@@ -110,7 +100,6 @@ export function useResearchSse(sessionId: string): UseResearchSseReturn {
     status,
     connect,
     disconnect,
-    getLatestByStage,
     isCompleted,
     hasError,
     isCacheHit,

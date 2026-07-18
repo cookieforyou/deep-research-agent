@@ -45,12 +45,10 @@ public record ProgressEvent(
         WEB_SEARCHING,
         /** 本地知识库检索中 */
         LOCAL_SEARCHING,
-        /** 证据裁判中 */
+        /** 证据过滤中 */
         JUDGING,
         /** 分析归纳中 */
         ANALYZING,
-        /** 反思补搜中 */
-        REFLECTING,
         /** 撰写报告中 */
         WRITING,
         /** 研究完成 */

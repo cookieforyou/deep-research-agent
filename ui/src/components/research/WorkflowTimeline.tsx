@@ -8,7 +8,6 @@ import {
   Globe,
   Scale,
   Brain,
-  RefreshCw,
   PenLine,
   CheckCircle,
   XCircle,
@@ -83,12 +82,6 @@ const TIMELINE_DEF: TimelineNodeDef[] = [
     Icon: Brain,
     stage: 'ANALYZING',
     color: STAGE_COLORS.ANALYZING,
-  },
-  {
-    label: STAGE_LABELS.REFLECTING,
-    Icon: RefreshCw,
-    stage: 'REFLECTING',
-    color: STAGE_COLORS.REFLECTING,
   },
   {
     label: STAGE_LABELS.WRITING,
@@ -190,7 +183,7 @@ export function WorkflowTimeline({ events }: WorkflowTimelineProps) {
     // 方法：从后往前找第一个非终端、非降级的主工作流阶段
     const mainStages = new Set<ResearchStage>([
       'INTENT_ROUTING', 'PLANNING', 'WEB_SEARCHING', 'LOCAL_SEARCHING',
-      'JUDGING', 'ANALYZING', 'REFLECTING', 'WRITING',
+      'JUDGING', 'ANALYZING', 'WRITING',
     ]);
 
     let activeStage: ResearchStage | null = null;

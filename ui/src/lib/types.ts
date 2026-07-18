@@ -46,7 +46,6 @@ export type ResearchStage =
   | 'LOCAL_SEARCHING'
   | 'JUDGING'
   | 'ANALYZING'
-  | 'REFLECTING'
   | 'WRITING'
   | 'COMPLETED'
   | 'CACHE_HIT'
