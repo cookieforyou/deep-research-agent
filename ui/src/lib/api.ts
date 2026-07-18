@@ -3,6 +3,7 @@ import type {
   ResearchRequest,
   ResearchResponse,
   ResearchHistoryItem,
+  ResearchHistoryDetail,
   PaginatedResponse,
   PromptTemplate,
   UserProfile,
@@ -83,9 +84,9 @@ export const historyApi = {
     return request<PaginatedResponse<ResearchHistoryItem>>(`/history?${searchParams}`);
   },
 
-  /** GET /api/history/{sessionId} — 获取历史详情（自动所有权验证） */
+  /** GET /api/history/{sessionId} — 获取历史详情（自动所有权验证，含完整报告） */
   getDetail(sessionId: string) {
-    return request<ResearchHistoryItem>(`/history/${sessionId}`);
+    return request<ResearchHistoryDetail>(`/history/${sessionId}`);
   },
 
   /** DELETE /api/history/{sessionId} — 删除研究记录（自动所有权验证） */

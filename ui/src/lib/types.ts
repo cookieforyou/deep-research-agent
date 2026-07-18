@@ -143,6 +143,13 @@ export interface ResearchHistoryItem {
   createdAt: string;
 }
 
+/** 研究历史详情（GET /api/history/{sessionId} — 含完整报告/证据池/研究结论） */
+export interface ResearchHistoryDetail extends ResearchHistoryItem {
+  report: string;
+  sourceIndex?: string;
+  findings?: string;
+}
+
 /** 分页响应 */
 /** Spring Data Page 序列化格式（PageJacksonModule 自动注册） */
 export interface PaginatedResponse<T> {

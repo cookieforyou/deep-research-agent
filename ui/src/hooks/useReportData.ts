@@ -2,7 +2,7 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { researchApi, historyApi } from '@/lib/api';
-import type { ResearchResponse, ResearchHistoryItem } from '@/lib/types';
+import type { ResearchResponse } from '@/lib/types';
 
 interface ReportData {
   report: string;
@@ -12,45 +12,48 @@ interface ReportData {
 }
 
 /**
- * 获取完整研究报告（含证据池）。
+ * 获取完整研究报告。
  *
- * 1. 从 GET /api/research/{sessionId} 获取报告文本和元数据
- * 2. 从 GET /api/history/{sessionId} 获取 sourceIndex（证据池）
+ * 优先从 history API（PG 持久化）获取，含完整 report / sourceIndex / findings。
+ * 404 时回退到 research status API（内存中刚完成的活跃会话，尚未持久化到 PG）。
  */
 export function useReportData(sessionId: string, enabled: boolean) {
-  // 主查询：报告文本
-  const reportQuery = useQuery<ResearchResponse>({
+  return useQuery<ReportData>({
     queryKey: ['report', sessionId],
-    queryFn: () => researchApi.getStatus(sessionId),
+    queryFn: async () => {
+      // 优先：history detail API（PG 持久化，含 report + sourceIndex + findings）
+      try {
+        const detail = await historyApi.getDetail(sessionId);
+        if (detail?.report) {
+          return {
+            report: detail.report,
+            metadata: {
+              wordCount: detail.wordCount,
+              citationCount: detail.citationCount,
+              iterationCount: detail.iterationCount,
+            },
+            sourceIndex: detail.sourceIndex,
+            findings: detail.findings,
+          };
+        }
+      } catch {
+        // history API 404 / 无报告 → 回退
+      }
+
+      // 回退：research status API（内存中刚完成的会话）
+      const status = await researchApi.getStatus(sessionId);
+      return {
+        report: status.report || '',
+        metadata: status.metadata,
+        sourceIndex: undefined,
+        findings: undefined,
+      };
+    },
     enabled: !!sessionId && enabled,
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
-    retry: 2,
-  });
-
-  // 补充查询：证据池（从 history API 获取）
-  const historyQuery = useQuery<ResearchHistoryItem>({
-    queryKey: ['report-sourceIndex', sessionId],
-    queryFn: () => historyApi.getDetail(sessionId),
-    enabled: !!sessionId && enabled && reportQuery.isSuccess,
-    staleTime: 5 * 60 * 1000,
     retry: 1,
   });
-
-  const data: ReportData | undefined = reportQuery.data
-    ? {
-        report: reportQuery.data.report || '',
-        metadata: reportQuery.data.metadata,
-        sourceIndex: historyQuery.data?.sourceIndex,
-        findings: historyQuery.data?.findings,
-      }
-    : undefined;
-
-  return {
-    data,
-    isLoading: reportQuery.isLoading,
-    isError: reportQuery.isError,
-  };
 }
 
 /**
