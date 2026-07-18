@@ -132,25 +132,19 @@ export interface EvalResult {
 // =========================== 研究历史 ===========================
 // 后端: ResearchHistory JPA Entity + Projection（Phase 4+ 新增 API）
 
-/** 研究历史列表项（不含报告全文） */
+/** 研究历史列表项（不含报告全文/证据池/研究结论，仅摘要字段） */
 export interface ResearchHistoryItem {
   id: number;
   sessionId: string;
   userId: string;
   tenantId: string;
   query: string;
-  /** 列表查询不返回全文，详情接口才返回 */
-  report?: string;
   wordCount: number;
   citationCount: number;
   iterationCount: number;
   status: 'COMPLETED' | 'ERROR';
   /** JSON string — EvalResult 序列化，nullable */
   evalScores?: string;
-  /** JSON string — Evidence[] 序列化，供引用溯源和证据抽屉使用 */
-  sourceIndex?: string;
-  /** JSON string — Finding[] 序列化，供"关键发现"Tab 渲染 */
-  findings?: string;
   createdAt: string;
 }
 
