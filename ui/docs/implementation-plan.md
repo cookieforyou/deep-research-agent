@@ -1093,7 +1093,7 @@ src/
 │   │   ├── skeleton.tsx          # Skeleton
 │   │   ├── sonner.tsx            # Toaster（sonner 封装）
 │   │   ├── tooltip.tsx           # Tooltip（Radix）
-│   │   ├── dropdown-menu.tsx      # DropdownMenu（Radix）
+│   │   ├── dropdown-menu.tsx     # DropdownMenu（Radix）
 │   │   ├── sheet.tsx             # Sheet（Radix Dialog 实现）
 │   │   ├── tabs.tsx              # Tabs（Radix）
 │   │   ├── separator.tsx         # Separator（Radix）
@@ -1115,7 +1115,7 @@ src/
 │   │   └── history/page.tsx      # 研究历史（骨架，Phase 5）
 │   └── (admin)/
 │       ├── layout.tsx            # 管理布局（侧边导航 + 权限守卫）
-│       └── admin/prompts/page.tsx # Prompt 管理（骨架，Phase 6）
+│       └── admin/prompts/page.tsx  # Prompt 管理（骨架，Phase 6）
 ```
 
 #### 验收结果
@@ -1176,18 +1176,18 @@ src/
 │   │   └── ... (Phase 0 已安装的组件)
 │   ├── research/
 │   │   ├── ResearchInput.tsx                 # ★ 研究查询输入框
-│   │   ├── ExampleQueries.tsx               # 示例查询按钮组
+│   │   ├── ExampleQueries.tsx                # 示例查询按钮组
 │   │   ├── ResearchModeToggle.tsx            # 深度研究 / 直接回答 切换
 │   │   └── RecentHistoryPreview.tsx          # 首页底部：最近 3 条历史（可用 Mock）
 │   └── layout/
 │       ├── Navbar.tsx                        # 更新（添加导航项）
 │       └── Sidebar.tsx                       # 更新（研究上下文区域预留）
 ├── hooks/
-│   ├── useResearchQuery.ts                  # ★ 发起研究的 TanStack mutation
-│   └── useResearchSse.ts                    # SSE 连接 Hook（骨架，Phase 3 完善）
+│   ├── useResearchQuery.ts                   # ★ 发起研究的 TanStack mutation
+│   └── useResearchSse.ts                     # SSE 连接 Hook（骨架，Phase 3 完善）
 └── lib/
-    ├── api.ts                               # 已在 Phase 1 完成
-    └── sse.ts                               # 已在 Phase 1 完成
+    ├── api.ts                                # 已在 Phase 1 完成
+    └── sse.ts                                # 已在 Phase 1 完成
 ```
 
 ### 2.4 详细步骤
@@ -1291,18 +1291,18 @@ const EXAMPLES = [
 #### Step 2.4: 首页页面布局
 
 ```
-┌─────────────────────────────────────┐
+┌──────────────────────────────────────┐
 │  Hero 区域                           │
 │  DeepResearch 深度研究               │
-│  企业级 AI 多智能体系统                │
-│  [特性简要: 7 Agent | SSE实时 | ...]  │
-├─────────────────────────────────────┤
+│  企业级 AI 多智能体系统              │
+│  [特性简要: 7 Agent | SSE实时 | ...] │
+├──────────────────────────────────────┤
 │  ResearchInput 卡片                  │
-├─────────────────────────────────────┤
+├──────────────────────────────────────┤
 │  示例查询 × 5                        │
-├─────────────────────────────────────┤
-│  最近研究历史（3 条，Mock 或 API）      │
-└─────────────────────────────────────┘
+├──────────────────────────────────────┤
+│  最近研究历史（3 条，Mock 或 API）   │
+└──────────────────────────────────────┘
 ```
 
 #### Step 2.5: 研究详情页骨架 `app/(research)/[sessionId]/page.tsx`
@@ -1393,14 +1393,14 @@ export default function ResearchPage({ params }: { params: { sessionId: string }
 ```
 src/
 ├── hooks/
-│   └── useResearchQuery.ts              # ★ TanStack useMutation: POST /api/research → 跳转
+│   └── useResearchQuery.ts               # ★ TanStack useMutation: POST /api/research → 跳转
 ├── components/
 │   └── research/
 │       ├── ResearchInput.tsx             # ★ 重写: 校验/字数统计/loading/错误面板
 │       ├── ResearchModeToggle.tsx        # ★ 新增: 深度研究 / 直接回答 切换
 │       ├── ExampleQueries.tsx            # 更新: onSelect 回调 → 填入输入框
 │       ├── RecentHistoryPreview.tsx      # ★ 新增: Mock 3 条 + Skeleton
-│       └── SseStatusBadge.tsx           # ★ 新增: 5 种连接状态指示
+│       └── SseStatusBadge.tsx            # ★ 新增: 5 种连接状态指示
 └── app/
     ├── page.tsx                          # ★ 更新: 状态提升 + 示例点击集成
     └── (research)/research/[sessionId]/
@@ -1607,31 +1607,31 @@ function computeNodes(events: ProgressEvent[]): TimelineNode[] {
 
 ```
 ┌────────────────────────────────────────────┐
-│  SseStatusBadge (右上角)                    │
+│  SseStatusBadge (右上角)                   │
 │                                            │
 │  [isCacheHit ? <CacheHitBanner /> : null]  │
 │                                            │
-│  WorkflowTimeline (主内容区 上 40%)          │
+│  WorkflowTimeline (主内容区 上 40%)        │
 │  ┌──────────────────────────────────────┐  │
-│  │  ○ intent_route    ✓ 0.3s            │  │
+│  │  ○ intent_route    ✓ 0.3s           │  │
 │  │  │                                   │  │
-│  │  ○ plan            ✓ 2.1s            │  │
+│  │  ○ plan            ✓ 2.1s           │  │
 │  │  │                                   │  │
-│  │  ◉ dual_search     进行中...          │  │
+│  │  ◉ dual_search     进行中...         │  │
 │  │  ├─ Web   ████░░░░ 4/6               │  │
 │  │  └─ Local ████████ 6/6               │  │
 │  │  │                                   │  │
-│  │  ○ filter          等待中             │  │
+│  │  ○ filter          等待中            │  │
 │  │  │                                   │  │
-│  │  ○ analyze         等待中             │  │
+│  │  ○ analyze         等待中            │  │
 │  │  │                                   │  │
-│  │  ○ write           等待中             │  │
+│  │  ○ write           等待中            │  │
 │  └──────────────────────────────────────┘  │
 │                                            │
 │  [hasError ? <ResearchErrorView /> : null] │
 │                                            │
-│  [isCompleted ? "报告已生成" 占位 : null]    │
-│  (报告内容 Phase 4 实现)                     │
+│  [isCompleted ? "报告已生成" 占位 : null]  │
+│  (报告内容 Phase 4 实现)                   │
 └────────────────────────────────────────────┘
 ```
 
@@ -1876,13 +1876,13 @@ export { ReactMarkdown, remarkGfm, rehypeRaw, rehypeHighlight };
 
 ```
 ┌───────────────────────────────────┐
-│ 来源 [WEB01_1-1]                   │
+│ 来源 [WEB01_1-1]                  │
 │ ───────────────────────────────── │
-│ 标题: 2026年中国新能源汽车销量...     │
+│ 标题: 2026年中国新能源汽车销量... │
 │ URL:  https://example.com/...     │  ← 可点击
-│ 域名: caixin.com                   │
-│ 评分: ⭐ 0.72                      │
-│ 内容: "2026年上半年新能源..."        │  ← 200 字符截断
+│ 域名: caixin.com                  │
+│ 评分: ⭐ 0.72                     │
+│ 内容: "2026年上半年新能源..."     │  ← 200 字符截断
 └───────────────────────────────────┘
 ```
 
@@ -2142,16 +2142,16 @@ export function EvalRadarChart({ evalResult }: { evalResult: EvalResult }) {
 
 ```
 ┌────────────────────┐
-│  综合评分           │
+│  综合评分          │
 │  ╭──────────╮      │
 │  │   4.2    │      │
 │  ╰──────────╯      │
-│  ★★★★☆             │
-│  5 维度评估         │
-│  相关性: 4.0        │
-│  连贯性: 3.5        │
+│  ★★★★☆        │
+│  5 维度评估        │
+│  相关性: 4.0       │
+│  连贯性: 3.5       │
 │  ...               │
-│  评估摘要: ...      │
+│  评估摘要: ...     │
 └────────────────────┘
 ```
 
@@ -2425,21 +2425,21 @@ src/
 #### Step 6.1: Prompt 管理页
 
 ```
-┌──────────────────────────────────────────────────────────────────────┐
-│   Prompt 模板管理                                                     │
-│  ┌───────────────────────────────────────────┐                       │
-│  │ 提示: 修改后 1 分钟内自动生效，无需重启服务     │                       │
-│  └───────────────────────────────────────────┘                       │
-│                                                                      │
-│  ┌────────────────────────────────────────────────────────────────┐  │
-│  │ ID            | 中文名  | 版本 | 状态  | AB | 更新时间 |  操作     │  │
-│  │────────────────────────────────────────────────────────────────│  │
+┌─────────────────────────────────────────────────────────────────────────┐
+│   Prompt 模板管理                                                       │
+│  ┌─────────────────────────────────────────────┐                        │
+│  │ 提示: 修改后 1 分钟内自动生效，无需重启服务 │                        │
+│  └─────────────────────────────────────────────┘                        │
+│                                                                         │
+│  ┌───────────────────────────────────────────────────────────────────┐  │
+│  │ ID            | 中文名  | 版本 | 状态  | AB | 更新时间 |  操作    │  │
+│  │────────────────────────────────────────────────────────────────── │  │
 │  │ intent-router | 意图路由 | v3 | active | - | 2h前 | [编辑] [禁用] │  │
 │  │ planner       | 任务规划 | v5 | active | A | 1h前 | [编辑] [禁用] │  │
 │  │ web-scout     | 网络搜索 | v2 | active | - | 30m前| [编辑] [禁用] │  │
-│  │ ...                                                            │  │
-│  └────────────────────────────────────────────────────────────────┘  │
-└──────────────────────────────────────────────────────────────────────┘
+│  │ ...                                                               │  │
+│  └───────────────────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
 #### Step 6.2: PromptEditor 组件
