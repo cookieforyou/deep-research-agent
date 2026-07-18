@@ -3,7 +3,6 @@ package com.example.deepresearch.service;
 import com.example.deepresearch.agent.eval.EvalAgent;
 import com.example.deepresearch.agent.profile.PreferenceExtractorAgent;
 import com.example.deepresearch.api.dto.ProgressEvent;
-import com.example.deepresearch.api.dto.ResearchRequest;
 import com.example.deepresearch.api.dto.ResearchResponse;
 import com.example.deepresearch.api.dto.ProgressEvent.ResearchStage;
 import com.example.deepresearch.cache.SemanticCacheService;
@@ -111,20 +110,23 @@ public class ResearchOrchestratorService {
      * 创建会话 → 异步启动工作流 → 返回 sessionId 供客户端订阅 SSE。
      * </p>
      *
-     * @param request 研究请求
+     * @param query       研究查询文本
+     * @param deepResearch 是否深度研究模式
+     * @param userId      用户 ID（由 Controller 从 JWT 提取）
+     * @param tenantId    租户 ID（由 Controller 从 JWT 提取）
      * @return 会话信息（含 sessionId 和流订阅 URL）
      */
-    public ResearchResponse startResearch(ResearchRequest request) {
+    public ResearchResponse startResearch(String query, boolean deepResearch,
+                                           String userId, String tenantId) {
         String sessionId = UUID.randomUUID().toString().substring(0, 8);
-        String tenantId = request.tenantId() != null ? request.tenantId() : "default";
 
         log.info("[Orchestrator] 启动研究: sessionId={}, query='{}', userId={}, tenantId={}",
-            sessionId, piiMaskingService.tokenizeToString(request.query()), request.userId(), tenantId);
+            sessionId, piiMaskingService.tokenizeToString(query), userId, tenantId);
 
         // 构造初始状态（memoryContext 留空，在虚拟线程中加载以避开 reactor 线程 block 限制）
         Map<String, Object> initialState = new HashMap<>();
-        initialState.put("query",          request.query());
-        initialState.put("userId",         request.userId());
+        initialState.put("query",          query);
+        initialState.put("userId",         userId);
         initialState.put("tenantId",       tenantId);
         initialState.put("sessionId",      sessionId);
         initialState.put("maxIterations",  1);
@@ -132,15 +134,13 @@ public class ResearchOrchestratorService {
         initialState.put("memoryContext",  "");
 
         // 将用户查询写入短期记忆（fire-and-forget，不影响主流程）
-        memoryManager.addUserMessage(sessionId, request.query());
+        memoryManager.addUserMessage(sessionId, query);
 
         // 在虚拟线程中加载记忆上下文并启动工作流
         // 关键：.block() 必须在虚拟线程上调用，reactor-http-nio 线程禁止阻塞
-        final String userId = request.userId();
-        final String query = request.query();
         CompletableFuture.runAsync(() -> {
             // === 语义缓存检查（在记忆加载前，避免重复网络调用） ===
-            if (request.deepResearch()) {
+            if (deepResearch) {
                 CacheResult cacheResult = checkSemanticCache(query, tenantId);
                 if (cacheResult.hit()) {
                     handleCacheHit(sessionId, query, cacheResult);

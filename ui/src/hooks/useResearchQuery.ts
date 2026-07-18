@@ -3,7 +3,6 @@
 import { useMutation } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { researchApi } from '@/lib/api';
-import { useAuthStore } from '@/stores/auth-store';
 import { ApiError } from '@/lib/types';
 import { toast } from 'sonner';
 
@@ -25,14 +24,11 @@ interface StartResearchInput {
  */
 export function useStartResearch() {
   const router = useRouter();
-  const { userId, tenantId } = useAuthStore();
 
   return useMutation({
     mutationFn: (input: StartResearchInput) =>
       researchApi.startResearch({
         query: input.query,
-        userId,
-        tenantId,
         deepResearch: input.deepResearch,
       }),
 

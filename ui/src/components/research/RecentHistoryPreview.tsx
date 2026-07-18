@@ -28,7 +28,7 @@ export function RecentHistoryPreview() {
   const { data, isLoading } = useQuery({
     queryKey: ['history', userId, tenantId, 'recent'],
     queryFn: () =>
-      historyApi.list({ userId, tenantId, page: 0, size: 3, sortBy: 'createdAt', sortDir: 'desc' }),
+      historyApi.list({ page: 0, size: 3, sortBy: 'createdAt', sortDir: 'desc' }),
     staleTime: 30_000,
     retry: 0,
   });

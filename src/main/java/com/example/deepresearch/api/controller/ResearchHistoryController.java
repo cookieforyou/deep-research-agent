@@ -4,6 +4,7 @@ import com.example.deepresearch.api.dto.ResearchHistorySummary;
 import com.example.deepresearch.memory.MemoryManager;
 import com.example.deepresearch.memory.entity.ResearchHistory;
 import com.example.deepresearch.memory.repository.ResearchHistoryRepository;
+import com.example.deepresearch.security.TenantJwtAuthenticationConverter;
 import jakarta.persistence.criteria.Predicate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -13,6 +14,8 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
@@ -25,8 +28,8 @@ import java.util.List;
 /**
  * 研究历史 API 控制器。
  * <p>
- * 使用 JPA Specification 实现数据库级分页、筛选和排序，
- * 避免内存中处理大量数据。
+ * 身份（userId / tenantId）从 JWT claims 提取，不接受请求参数传入，防止篡改。
+ * </p>
  */
 @RestController
 @RequestMapping("/api/history")
@@ -46,12 +49,11 @@ public class ResearchHistoryController {
     /**
      * GET /api/history
      * 分页查询研究历史，支持搜索、筛选和排序。
-     * 返回 ResearchHistorySummary（不含报告全文）。
+     * 返回 ResearchHistorySummary（不含报告全文/证据池/研究结论）。
      */
     @GetMapping
     public ResponseEntity<Page<ResearchHistorySummary>> listHistory(
-        @RequestParam String userId,
-        @RequestParam String tenantId,
+        @AuthenticationPrincipal Jwt jwt,
         @RequestParam(defaultValue = "0") int page,
         @RequestParam(defaultValue = "20") int size,
         @RequestParam(required = false) String status,
@@ -62,6 +64,9 @@ public class ResearchHistoryController {
         @RequestParam(required = false) String endDate,
         @RequestParam(required = false) Double minScore
     ) {
+        String userId = TenantJwtAuthenticationConverter.resolveUserId(jwt);
+        String tenantId = TenantJwtAuthenticationConverter.resolveTenantId(jwt);
+
         log.info("[History] 查询研究历史: userId={}, tenantId={}, page={}, size={}, status={}, keyword={}, startDate={}, endDate={}, minScore={}",
             userId, tenantId, page, size, status, keyword, startDate, endDate, minScore);
 
@@ -82,7 +87,6 @@ public class ResearchHistoryController {
                     predicates.add(cb.like(cb.lower(root.get("query")),
                         "%" + keyword.toLowerCase() + "%"));
                 }
-                // 日期范围筛选
                 if (startDate != null && !startDate.isEmpty()) {
                     LocalDateTime start = LocalDate.parse(startDate, DateTimeFormatter.ISO_LOCAL_DATE)
                         .atStartOfDay();
@@ -121,13 +125,15 @@ public class ResearchHistoryController {
     /**
      * GET /api/history/{sessionId}
      * 获取单条研究历史详情（含完整报告、评估分数、证据池）。
+     * 自动验证所有权：仅返回当前 JWT 用户的数据。
      */
     @GetMapping("/{sessionId}")
     public ResponseEntity<ResearchHistory> getDetail(
         @PathVariable String sessionId,
-        @RequestParam(required = false) String userId,
-        @RequestParam(required = false) String tenantId
+        @AuthenticationPrincipal Jwt jwt
     ) {
+        String jwtUserId = TenantJwtAuthenticationConverter.resolveUserId(jwt);
+
         log.info("[History] 获取详情: sessionId={}", sessionId);
 
         try {
@@ -138,10 +144,10 @@ public class ResearchHistoryController {
 
             ResearchHistory history = historyOpt.get();
 
-            if (userId != null && !userId.isEmpty() &&
-                !userId.equals(history.getUserId())) {
-                log.warn("[History] 无权访问: sessionId={}, requestUser={}, owner={}",
-                    sessionId, userId, history.getUserId());
+            // 所有权验证：仅允许访问自己的数据
+            if (!jwtUserId.equals(history.getUserId())) {
+                log.warn("[History] 无权访问: sessionId={}, jwtUser={}, owner={}",
+                    sessionId, jwtUserId, history.getUserId());
                 return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
             }
 
@@ -155,14 +161,16 @@ public class ResearchHistoryController {
 
     /**
      * DELETE /api/history/{sessionId}
-     * 删除研究记录。需提供 userId + tenantId 验证所有权。
+     * 删除研究记录。从 JWT 提取身份验证所有权。
      */
     @DeleteMapping("/{sessionId}")
     public ResponseEntity<Void> delete(
         @PathVariable String sessionId,
-        @RequestParam String userId,
-        @RequestParam String tenantId
+        @AuthenticationPrincipal Jwt jwt
     ) {
+        String jwtUserId = TenantJwtAuthenticationConverter.resolveUserId(jwt);
+        String jwtTenantId = TenantJwtAuthenticationConverter.resolveTenantId(jwt);
+
         log.info("[History] 删除记录: sessionId={}", sessionId);
 
         try {
@@ -173,10 +181,11 @@ public class ResearchHistoryController {
 
             ResearchHistory history = historyOpt.get();
 
-            if (!userId.equals(history.getUserId()) ||
-                !tenantId.equals(history.getTenantId())) {
-                log.warn("[History] 无权删除: sessionId={}, request={}/{}",
-                    sessionId, userId, tenantId);
+            if (!jwtUserId.equals(history.getUserId()) ||
+                !jwtTenantId.equals(history.getTenantId())) {
+                log.warn("[History] 无权删除: sessionId={}, jwtUser={}/{}, owner={}/{}",
+                    sessionId, jwtUserId, jwtTenantId,
+                    history.getUserId(), history.getTenantId());
                 return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
             }
 
@@ -191,15 +200,10 @@ public class ResearchHistoryController {
 
     /**
      * 从 evalScores JSON 字符串中提取 overallScore。
-     * <p>
-     * evalScores 格式: {"overallScore":4.2,...}
-     * 解析失败时返回 0.0（不参与评分筛选）。
-     * </p>
      */
     private static double extractOverallScore(String evalScores) {
         if (evalScores == null || evalScores.isEmpty()) return 0.0;
         try {
-            // 简单正则提取: 避免引入 Jackson 解析的复杂性
             java.util.regex.Pattern pattern = java.util.regex.Pattern.compile(
                 "\"overallScore\"\\s*:\\s*([\\d.]+)");
             java.util.regex.Matcher matcher = pattern.matcher(evalScores);

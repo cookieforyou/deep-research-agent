@@ -79,15 +79,13 @@ export function HistoryList() {
     async (sessionId: string) => {
       try {
         const { historyApi } = await import('@/lib/api');
-        const item = allItems.find((i) => i.sessionId === sessionId);
-        if (!item) return;
-        await historyApi.delete(sessionId, item.userId, item.tenantId);
+        await historyApi.delete(sessionId);
         refetch();
       } catch {
         // 后端 API 调用失败时静默处理
       }
     },
-    [refetch, allItems],
+    [refetch],
   );
 
   const handleReRun = useCallback(

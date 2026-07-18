@@ -1,7 +1,6 @@
 package com.example.deepresearch.eval;
 
 import com.example.deepresearch.agent.eval.EvalAgent;
-import com.example.deepresearch.api.dto.ResearchRequest;
 import com.example.deepresearch.service.ResearchOrchestratorService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -43,9 +42,7 @@ class AiEvaluationRegressionTest {
     })
     void testResearchReportContainsExpectedTopics(String query, String expectedKeyword) {
         // 发起研究
-        ResearchRequest request = new ResearchRequest(
-            query, "test-user", "test-tenant", true);
-        var response = orchestrator.startResearch(request);
+        var response = orchestrator.startResearch(query, true, "test-user", "test-tenant");
 
         assertThat(response).isNotNull();
         assertThat(response.sessionId()).isNotBlank();
@@ -57,9 +54,7 @@ class AiEvaluationRegressionTest {
 
     @Test
     void testSimpleQueryReturnsSessionId() {
-        ResearchRequest request = new ResearchRequest(
-            "什么是人工智能", "test-user", "test-tenant", false);
-        var response = orchestrator.startResearch(request);
+        var response = orchestrator.startResearch("什么是人工智能", false, "test-user", "test-tenant");
 
         assertThat(response).isNotNull();
         assertThat(response.sessionId()).isNotBlank();

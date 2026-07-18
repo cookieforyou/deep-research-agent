@@ -65,53 +65,32 @@ export const researchApi = {
 };
 
 // =========================== 历史 API ===========================
-// Phase 5 需要后端新增 ResearchHistoryController
+// 身份（userId/tenantId）由后端从 JWT 提取，前端无需传参。
 
 export const historyApi = {
-  /** GET /api/history — 分页查询研究历史（支持日期范围和评分筛选） */
+  /** GET /api/history — 分页查询研究历史 */
   list(params: {
-    userId: string;
-    tenantId: string;
     page?: number;
     size?: number;
-    status?: string;
-    keyword?: string;
     sortBy?: string;
     sortDir?: string;
-    startDate?: string;
-    endDate?: string;
-    minScore?: number;
   }) {
     const searchParams = new URLSearchParams();
-    searchParams.set('userId', params.userId);
-    searchParams.set('tenantId', params.tenantId);
     if (params.page !== undefined) searchParams.set('page', String(params.page));
     if (params.size !== undefined) searchParams.set('size', String(params.size));
-    if (params.status) searchParams.set('status', params.status);
-    if (params.keyword) searchParams.set('keyword', params.keyword);
     if (params.sortBy) searchParams.set('sortBy', params.sortBy);
     if (params.sortDir) searchParams.set('sortDir', params.sortDir);
-    if (params.startDate) searchParams.set('startDate', params.startDate);
-    if (params.endDate) searchParams.set('endDate', params.endDate);
-    if (params.minScore !== undefined) searchParams.set('minScore', String(params.minScore));
     return request<PaginatedResponse<ResearchHistoryItem>>(`/history?${searchParams}`);
   },
 
-  /** GET /api/history/{sessionId} — 获取历史详情（含完整报告，验证所有权） */
-  getDetail(sessionId: string, userId?: string, tenantId?: string) {
-    const params = new URLSearchParams();
-    if (userId) params.set('userId', userId);
-    if (tenantId) params.set('tenantId', tenantId);
-    const qs = params.toString();
-    return request<ResearchHistoryItem>(`/history/${sessionId}${qs ? '?' + qs : ''}`);
+  /** GET /api/history/{sessionId} — 获取历史详情（自动所有权验证） */
+  getDetail(sessionId: string) {
+    return request<ResearchHistoryItem>(`/history/${sessionId}`);
   },
 
-  /** DELETE /api/history/{sessionId} — 删除研究记录（需所有权验证） */
-  delete(sessionId: string, userId: string, tenantId: string) {
-    const params = new URLSearchParams();
-    params.set('userId', userId);
-    params.set('tenantId', tenantId);
-    return request<void>(`/history/${sessionId}?${params}`, { method: 'DELETE' });
+  /** DELETE /api/history/{sessionId} — 删除研究记录（自动所有权验证） */
+  delete(sessionId: string) {
+    return request<void>(`/history/${sessionId}`, { method: 'DELETE' });
   },
 
   /** POST /api/history/{sessionId}/re-run — 重新执行相同查询（预留） */
@@ -156,12 +135,12 @@ export const adminApi = {
 };
 
 // =========================== 用户 API ===========================
-// Phase 5 需要后端新增 UserProfileController
+// 身份（userId/tenantId）由后端从 JWT 提取。
 
 export const userApi = {
-  /** GET /api/user/profile — 获取用户画像 */
-  getProfile(userId: string, tenantId: string) {
-    return request<UserProfile>(`/user/profile?userId=${userId}&tenantId=${tenantId}`);
+  /** GET /api/user/profile — 获取当前用户画像 */
+  getProfile() {
+    return request<UserProfile>('/user/profile');
   },
 };
 

@@ -2,14 +2,10 @@
 // 所有类型与 Spring Boot 后端 Java Record/DTO 字段一一对应
 // 后端源码: src/main/java/com/example/deepresearch/api/dto/
 
-/** POST /api/research 请求体 (ResearchRequest.java) */
+/** POST /api/research 请求体 (ResearchRequest.java) — userId/tenantId 由后端从 JWT 提取 */
 export interface ResearchRequest {
   /** 研究查询，1-5000 字符 */
   query: string;
-  /** 用户标识（默认 "anonymous"） */
-  userId: string;
-  /** 租户标识（默认 "default"） */
-  tenantId: string;
   /** true=深度研究（多 Agent 流程），false=直接回答 */
   deepResearch: boolean;
 }

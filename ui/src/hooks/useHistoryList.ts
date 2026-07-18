@@ -18,8 +18,6 @@ export function useHistoryList() {
     queryKey: ['history', userId, tenantId],
     queryFn: ({ pageParam = 0 }) =>
       historyApi.list({
-        userId,
-        tenantId,
         page: pageParam as number,
         size: 50,
         sortBy: 'createdAt',
