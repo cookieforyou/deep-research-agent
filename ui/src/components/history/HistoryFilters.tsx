@@ -71,7 +71,7 @@ export function HistoryFilters({
           <SelectContent>
             <SelectItem value="createdAt">最近创建</SelectItem>
             <SelectItem value="wordCount">最多字数</SelectItem>
-            <SelectItem value="evalScore">最高评分</SelectItem>
+            <SelectItem value="overallScore">最高评分</SelectItem>
           </SelectContent>
         </Select>
 

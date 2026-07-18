@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import { useHistoryList } from '@/hooks/useHistoryList';
+import { useHistoryList, applyClientFilters, type ClientFilters } from '@/hooks/useHistoryList';
 import { HistorySearch } from './HistorySearch';
 import { HistoryFilters } from './HistoryFilters';
 import { HistoryCard } from './HistoryCard';
@@ -11,16 +11,13 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { FileSearch, RefreshCw, ChevronDown } from 'lucide-react';
 
+const PAGE_SIZE = 20;
+
 /**
  * 研究历史列表
  *
- * 功能：
- * - 搜索：全文搜索 query 字段（300ms debounce）
- * - 筛选：按状态（全部/已完成/失败）+ 排序（时间/字数/评分）
- * - 桌面端：表格视图
- * - 移动端：卡片视图
- * - 无限滚动加载
- * - 空状态 / 加载状态 / 错误状态全覆盖
+ * 策略：一次拉取全部数据，关键词/状态/排序/日期/评分筛选全部在前端完成。
+ * 不再因筛选条件变化触发后端 API 调用。
  */
 export function HistoryList() {
   const router = useRouter();
@@ -30,31 +27,53 @@ export function HistoryList() {
   const [startDate, setStartDate] = useState<string | undefined>();
   const [endDate, setEndDate] = useState<string | undefined>();
   const [minScore, setMinScore] = useState<number | undefined>();
+  const [page, setPage] = useState(0);
 
-  const filterParams = { keyword, status, sortBy, sortDir: 'desc' as const, startDate, endDate, minScore };
   const { data, isLoading, isError, fetchNextPage, hasNextPage, isFetchingNextPage, refetch } =
-    useHistoryList(filterParams);
+    useHistoryList();
 
-  const handleDateRangeChange = useCallback(
-    (newStart?: string, newEnd?: string) => {
-      setStartDate(newStart);
-      setEndDate(newEnd);
-    },
-    [],
+  const filters: ClientFilters = useMemo(
+    () => ({ keyword, status, sortBy, sortDir: 'desc', startDate, endDate, minScore }),
+    [keyword, status, sortBy, startDate, endDate, minScore],
   );
 
-  const handleScoreRangeChange = useCallback(
-    (newMinScore?: number) => {
-      setMinScore(newMinScore);
-    },
-    [],
-  );
-
+  // 累积全部已拉取的 items
   const allItems = useMemo(
-    () => data?.pages.flatMap((page) => page.content) || [],
+    () => data?.pages.flatMap((p) => p.content) || [],
     [data],
   );
+
+  // 客户端过滤 + 排序 + 分页
+  const { items: visibleItems, total: filteredTotal } = useMemo(
+    () => applyClientFilters(allItems, filters, page, PAGE_SIZE),
+    [allItems, filters, page],
+  );
+
+  // 筛选项变化时重置到第一页
+  const wrappedSetKeyword = useCallback((kw: string) => { setKeyword(kw); setPage(0); }, []);
+  const wrappedSetStatus = useCallback((s: string) => { setStatus(s); setPage(0); }, []);
+  const wrappedSetSortBy = useCallback((s: string) => { setSortBy(s); setPage(0); }, []);
+  const wrappedSetDateRange = useCallback((s?: string, e?: string) => { setStartDate(s); setEndDate(e); setPage(0); }, []);
+  const wrappedSetMinScore = useCallback((s?: number) => { setMinScore(s); setPage(0); }, []);
+
+  // 客户端分页是否有更多
+  const hasMoreClient = (page + 1) * PAGE_SIZE < filteredTotal;
+
+  // 是否还有更多服务端数据未拉取
+  const hasMoreServer = hasNextPage;
+
+  const handleLoadMore = useCallback(() => {
+    if (hasMoreClient) {
+      setPage((p) => p + 1);
+    } else if (hasMoreServer) {
+      fetchNextPage().then(() => setPage((p) => p + 1));
+    }
+  }, [hasMoreClient, hasMoreServer, fetchNextPage]);
+
+  const showLoadMore = hasMoreClient || hasMoreServer;
+
   const isEmpty = !isLoading && allItems.length === 0;
+  const isFilteredEmpty = !isLoading && allItems.length > 0 && visibleItems.length === 0;
 
   const handleDelete = useCallback(
     async (sessionId: string) => {
@@ -83,7 +102,7 @@ export function HistoryList() {
       {/* 搜索 + 筛选 */}
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="flex-1">
-          <HistorySearch onSearch={setKeyword} value={keyword} />
+          <HistorySearch onSearch={wrappedSetKeyword} value={keyword} />
         </div>
         <HistoryFilters
           status={status}
@@ -91,10 +110,10 @@ export function HistoryList() {
           startDate={startDate}
           endDate={endDate}
           minScore={minScore}
-          onStatusChange={setStatus}
-          onSortChange={setSortBy}
-          onDateRangeChange={handleDateRangeChange}
-          onScoreRangeChange={handleScoreRangeChange}
+          onStatusChange={wrappedSetStatus}
+          onSortChange={wrappedSetSortBy}
+          onDateRangeChange={wrappedSetDateRange}
+          onScoreRangeChange={wrappedSetMinScore}
         />
       </div>
 
@@ -123,31 +142,41 @@ export function HistoryList() {
         </div>
       )}
 
-      {/* 空状态 */}
+      {/* 空状态（无任何数据） */}
       {isEmpty && (
         <div className="flex flex-col items-center gap-3 py-16 text-center">
           <FileSearch className="h-12 w-12 text-muted-foreground/30" />
           <div>
-            <p className="text-sm font-medium text-muted-foreground">
-              {keyword ? '没有找到匹配的研究记录' : '还没有研究记录'}
-            </p>
+            <p className="text-sm font-medium text-muted-foreground">还没有研究记录</p>
             <p className="text-xs text-muted-foreground mt-1">
-              {keyword
-                ? '尝试修改搜索关键词'
-                : '去首页发起第一次深度研究'}
+              去首页发起第一次深度研究
             </p>
           </div>
-          {!keyword && (
-            <Button variant="outline" size="sm" onClick={() => router.push('/')}>
-              开始研究
-            </Button>
-          )}
+          <Button variant="outline" size="sm" onClick={() => router.push('/')}>
+            开始研究
+          </Button>
         </div>
       )}
 
-      {/* 桌面端：表格 */}
-      {!isEmpty && (
+      {/* 筛选后无结果 */}
+      {isFilteredEmpty && (
+        <div className="flex flex-col items-center gap-3 py-12 text-center">
+          <FileSearch className="h-12 w-12 text-muted-foreground/30" />
+          <div>
+            <p className="text-sm font-medium text-muted-foreground">
+              没有找到匹配的研究记录
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">
+              尝试修改筛选条件
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* 数据展示 */}
+      {visibleItems.length > 0 && (
         <>
+          {/* 桌面端：表格 */}
           <div className="hidden md:block rounded-lg border overflow-hidden">
             <table className="w-full">
               <thead className="bg-muted/50">
@@ -176,7 +205,7 @@ export function HistoryList() {
                 </tr>
               </thead>
               <tbody>
-                {allItems.map((item) => (
+                {visibleItems.map((item) => (
                   <HistoryRow
                     key={item.id}
                     item={item}
@@ -190,7 +219,7 @@ export function HistoryList() {
 
           {/* 移动端：卡片 */}
           <div className="md:hidden space-y-2">
-            {allItems.map((item) => (
+            {visibleItems.map((item) => (
               <HistoryCard
                 key={item.id}
                 item={item}
@@ -201,12 +230,12 @@ export function HistoryList() {
           </div>
 
           {/* 加载更多 */}
-          {hasNextPage && (
+          {showLoadMore && (
             <div className="flex justify-center pt-2">
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => fetchNextPage()}
+                onClick={handleLoadMore}
                 disabled={isFetchingNextPage}
               >
                 {isFetchingNextPage ? (
@@ -226,7 +255,7 @@ export function HistoryList() {
 
           {/* 总数 */}
           <p className="text-xs text-muted-foreground text-center">
-            共 {data?.pages[0]?.totalElements ?? allItems.length} 条记录
+            共 {filteredTotal} 条记录{allItems.length !== filteredTotal ? `（全部 ${allItems.length} 条）` : ''}
           </p>
         </>
       )}
