@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/auth-store';
 import { loginWithPassword } from '@/lib/api';
@@ -24,12 +24,6 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-
-  // 已认证则跳转首页
-  if (isAuthenticated) {
-    router.replace('/');
-    return null;
-  }
 
   const handleSubmit = useCallback(
     async (e: React.FormEvent) => {
@@ -58,6 +52,18 @@ export default function LoginPage() {
     },
     [username, password, login, router],
   );
+
+  // 已认证则跳转首页（useEffect 中执行，不在 render 期间调用 router）
+  useEffect(() => {
+    if (isAuthenticated) {
+      router.replace('/');
+    }
+  }, [isAuthenticated, router]);
+
+  // 已认证时不渲染登录表单（等待重定向）
+  if (isAuthenticated) {
+    return null;
+  }
 
   return (
     <div className="flex min-h-[80vh] items-center justify-center px-4">
