@@ -50,18 +50,6 @@ export const STAGE_COLORS: Record<ResearchStage, string> = {
   ERROR: 'var(--workflow-error)',
 };
 
-/** 工作流节点顺序（对齐后端 DAG：intent→plan→dual_search→filter→analyze→write） */
-export const WORKFLOW_NODE_ORDER: ResearchStage[] = [
-  'INTENT_ROUTING',
-  'PLANNING',
-  'WEB_SEARCHING',
-  'LOCAL_SEARCHING',
-  'JUDGING',
-  'ANALYZING',
-  'WRITING',
-  'COMPLETED',
-];
-
 /** 搜索阶段列表（dual_search 节点的子阶段） */
 export const SEARCH_STAGES: ResearchStage[] = ['WEB_SEARCHING', 'LOCAL_SEARCHING'];
 

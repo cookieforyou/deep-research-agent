@@ -9,6 +9,7 @@ import {
   Scale,
   Brain,
   PenLine,
+  MessageSquare,
   CheckCircle,
   XCircle,
   type LucideIcon,
@@ -21,16 +22,13 @@ import { STAGE_LABELS, STAGE_COLORS } from '@/lib/constants';
 // =========================== 类型定义 ===========================
 
 interface TimelineNodeDef {
-  /** 显示标签 */
   label: string;
-  /** lucide-react 图标 */
   Icon: LucideIcon;
-  /** 后端 stage（用于匹配事件），null 表示组合节点 */
-  stage: ResearchStage | null;
-  /** 子 stage（仅 DUAL_SEARCH 使用） */
-  children?: { stage: ResearchStage; label: string }[];
-  /** 颜色 */
+  /** 匹配事件的 stage 集合 */
+  stages: ResearchStage[];
   color: string;
+  /** 仅 dual_search 使用：子阶段映射 */
+  children?: { stage: ResearchStage; label: string }[];
 }
 
 interface ComputedNode {
@@ -41,30 +39,29 @@ interface ComputedNode {
   elapsed?: number;
   color: string;
   isLast: boolean;
-  /** dual_search 子进度 */
   children?: React.ReactNode;
 }
 
-// =========================== Timeline 定义 ===========================
+// =========================== 流程定义 ===========================
 
-const TIMELINE_DEF: TimelineNodeDef[] = [
+/** 研究流程节点（深度研究） */
+const RESEARCH_NODES: TimelineNodeDef[] = [
   {
     label: STAGE_LABELS.INTENT_ROUTING,
     Icon: GitBranch,
-    stage: 'INTENT_ROUTING',
+    stages: ['INTENT_ROUTING'],
     color: STAGE_COLORS.INTENT_ROUTING,
   },
   {
     label: STAGE_LABELS.PLANNING,
     Icon: ClipboardList,
-    stage: 'PLANNING',
+    stages: ['PLANNING'],
     color: STAGE_COLORS.PLANNING,
   },
   {
-    // dual_search: Web + Local 并行
     label: '双源检索',
     Icon: Globe,
-    stage: null, // 组合节点
+    stages: ['WEB_SEARCHING', 'LOCAL_SEARCHING'],
     color: STAGE_COLORS.WEB_SEARCHING,
     children: [
       { stage: 'WEB_SEARCHING', label: 'Web 搜索' },
@@ -74,40 +71,66 @@ const TIMELINE_DEF: TimelineNodeDef[] = [
   {
     label: STAGE_LABELS.JUDGING,
     Icon: Scale,
-    stage: 'JUDGING',
+    stages: ['JUDGING'],
     color: STAGE_COLORS.JUDGING,
   },
   {
     label: STAGE_LABELS.ANALYZING,
     Icon: Brain,
-    stage: 'ANALYZING',
+    stages: ['ANALYZING'],
     color: STAGE_COLORS.ANALYZING,
   },
   {
     label: STAGE_LABELS.WRITING,
     Icon: PenLine,
-    stage: 'WRITING',
+    stages: ['WRITING'],
     color: STAGE_COLORS.WRITING,
   },
 ];
 
+/** 直接回答流程节点 */
+const DIRECT_NODES: TimelineNodeDef[] = [
+  {
+    label: STAGE_LABELS.INTENT_ROUTING,
+    Icon: GitBranch,
+    stages: ['INTENT_ROUTING'],
+    color: STAGE_COLORS.INTENT_ROUTING,
+  },
+  {
+    label: '直接回答',
+    Icon: MessageSquare,
+    stages: ['PLANNING'], // 后端 direct_answer 节点复用 PLANNING stage
+    color: STAGE_COLORS.PLANNING,
+  },
+];
+
+/** 研究流程的特征 stage（有任意一个即为研究流程） */
+const RESEARCH_SIGNATURE: ResearchStage[] = [
+  'WEB_SEARCHING', 'LOCAL_SEARCHING', 'JUDGING', 'ANALYZING', 'WRITING',
+];
+
 // =========================== 工具函数 ===========================
 
-/** 从 ISO 8601 时间戳计算毫秒差 */
 function diffMs(start: string, end: string): number {
   return new Date(end).getTime() - new Date(start).getTime();
 }
 
-/** 从搜索 ProgressEvent 的 message 中提取进度信息 */
-function parseSearchProgress(
-  message: string,
-): { current: number; total: number } | null {
-  // 后端 message 格式: "搜索中: 4/6" 或 "已完成 Web 搜索: 6/6"
+function parseSearchProgress(message: string): { current: number; total: number } | null {
   const match = message.match(/(\d+)\s*\/\s*(\d+)/);
   if (match) {
     return { current: parseInt(match[1]), total: parseInt(match[2]) };
   }
   return null;
+}
+
+/** 根据事件判断是研究流程还是直接回答流程 */
+function detectFlowType(
+  eventStages: Set<ResearchStage>,
+): 'research' | 'direct' {
+  for (const sig of RESEARCH_SIGNATURE) {
+    if (eventStages.has(sig)) return 'research';
+  }
+  return 'direct';
 }
 
 // =========================== 组件 ===========================
@@ -117,24 +140,13 @@ interface WorkflowTimelineProps {
 }
 
 /**
- * 工作流时间线组件
+ * 工作流时间线组件 — 动态适配研究/直接回答流程。
  *
- * 根据 SSE 进度事件计算 7 阶段节点状态，渲染纵向时间线。
- *
- * 节点状态计算:
- *   1. 按 WORKFLOW_NODE_ORDER 顺序排列
- *   2. 找到最后一个已开始但未结束的阶段 → active
- *   3. 前面阶段 → done，后面阶段 → pending
- *   4. COMPLETED 事件 → 全部 done
- *   5. ERROR 事件 → 已开始的标记 error
- *
- * 特殊处理:
- *   - dual_search: WEB_SEARCHING + LOCAL_SEARCHING 合并为一个节点
- *   - CACHE_HIT: 不渲染 Timeline（父组件控制）
- *   - MODEL_FALLBACK / SEARCH_FALLBACK: 触发 toast 通知
+ * 根据实际收到的 SSE 事件自动选择展示节点：
+ *   - 深度研究：意图路由 → 任务规划 → 双源检索 → 证据过滤 → 分析归纳 → 报告撰写 → 完成
+ *   - 直接回答：意图路由 → 直接回答 → 完成
  */
 export function WorkflowTimeline({ events }: WorkflowTimelineProps) {
-  // 实时计时器：每 1 秒 tick 一次，更新活跃节点的耗时显示
   const [tick, setTick] = useState(0);
 
   useEffect(() => {
@@ -144,18 +156,15 @@ export function WorkflowTimeline({ events }: WorkflowTimelineProps) {
     });
     if (!hasActive) return;
 
-    const timer = setInterval(() => {
-      setTick((t) => t + 1);
-    }, 1000);
+    const timer = setInterval(() => setTick((t) => t + 1), 1000);
     return () => clearInterval(timer);
   }, [events]);
 
-  // 降级通知（副作用）
+  // 降级通知
   useMemo(() => {
     const fallbackEvents = events.filter(
       (e) => e.stage === 'MODEL_FALLBACK' || e.stage === 'SEARCH_FALLBACK',
     );
-    // 只通知最新的降级事件
     if (fallbackEvents.length > 0) {
       const latest = fallbackEvents[fallbackEvents.length - 1];
       if (latest.stage === 'MODEL_FALLBACK') {
@@ -166,100 +175,79 @@ export function WorkflowTimeline({ events }: WorkflowTimelineProps) {
     }
   }, [events]);
 
-  // 计算节点状态
+  // === 核心：动态选择节点定义 + 计算状态 ===
   const computedNodes = useMemo<ComputedNode[]>(() => {
     // 1. 按 stage 分组事件
     const stageEvents = new Map<ResearchStage, ProgressEvent[]>();
+    const eventStageSet = new Set<ResearchStage>();
     for (const e of events) {
+      eventStageSet.add(e.stage);
       const arr = stageEvents.get(e.stage) || [];
       arr.push(e);
       stageEvents.set(e.stage, arr);
     }
 
+    // 2. 判断流程类型，选择节点定义
+    const flowType = detectFlowType(eventStageSet);
+    const nodeDefs = flowType === 'research' ? RESEARCH_NODES : DIRECT_NODES;
+
     const isCompleted = events.some((e) => e.stage === 'COMPLETED');
     const isError = events.some((e) => e.stage === 'ERROR');
 
-    // 2. 找到当前活跃阶段
-    // 方法：从后往前找第一个非终端、非降级的主工作流阶段
-    const mainStages = new Set<ResearchStage>([
-      'INTENT_ROUTING', 'PLANNING', 'WEB_SEARCHING', 'LOCAL_SEARCHING',
-      'JUDGING', 'ANALYZING', 'WRITING',
-    ]);
-
+    // 3. 找当前活跃阶段
+    const allStages = new Set(nodeDefs.flatMap((d) => d.stages));
     let activeStage: ResearchStage | null = null;
     if (!isCompleted && !isError) {
       for (let i = events.length - 1; i >= 0; i--) {
-        if (mainStages.has(events[i].stage)) {
+        if (allStages.has(events[i].stage)) {
           activeStage = events[i].stage;
           break;
         }
       }
     }
 
-    // 3. 构建节点列表
+    // 4. 构建节点
     let allDone = isCompleted;
     const nodes: ComputedNode[] = [];
 
-    for (let idx = 0; idx < TIMELINE_DEF.length; idx++) {
-      const def = TIMELINE_DEF[idx];
-      const isLast = idx === TIMELINE_DEF.length - 1;
+    for (let idx = 0; idx < nodeDefs.length; idx++) {
+      const def = nodeDefs[idx];
+      const isLast = idx === nodeDefs.length - 1 && !isCompleted && !isError;
 
-      // 确定该节点的 stage 集合
-      const stageKeys: ResearchStage[] = def.stage
-        ? [def.stage]
-        : (def.children?.map((c) => c.stage) || []);
+      const nodeEvents = def.stages.flatMap((s) => stageEvents.get(s) || []);
 
-      // 收集事件
-      const nodeEvents = stageKeys.flatMap((s) => stageEvents.get(s) || []);
-
-      // 判断状态
+      // 状态判定
       let status: NodeStatus = 'pending';
-
       if (isError && nodeEvents.length > 0) {
-        // 错误后，已开始的节点标记为 error
         status = 'error';
       } else if (allDone) {
         status = 'done';
-      } else if (activeStage && stageKeys.includes(activeStage)) {
+      } else if (activeStage && def.stages.includes(activeStage)) {
         status = 'active';
-        allDone = false; // 活跃节点之后都是 pending
+        allDone = false;
       } else if (nodeEvents.length > 0 && activeStage === null) {
         status = 'done';
-      } else if (nodeEvents.length === 0 && activeStage === null) {
-        status = 'pending';
-      } else if (
-        nodeEvents.length > 0 &&
-        activeStage &&
-        !stageKeys.includes(activeStage)
-      ) {
-        // 判断是否在活跃阶段之前
-        const activeIdx = TIMELINE_DEF.findIndex(
-          (d) =>
-            d.stage === activeStage ||
-            d.children?.some((c) => c.stage === activeStage),
-        );
-        const thisIdx = idx;
-        status = activeIdx === -1 || thisIdx < activeIdx ? 'done' : 'pending';
-      } else {
-        status = 'pending';
+      } else if (nodeEvents.length > 0 && activeStage && !def.stages.includes(activeStage)) {
+        const activeIdx = nodeDefs.findIndex((d) => d.stages.includes(activeStage!));
+        status = activeIdx === -1 || idx < activeIdx ? 'done' : 'pending';
       }
 
-      // 计算耗时
+      // 耗时
       let elapsed: number | undefined;
       if (nodeEvents.length > 0 && status !== 'pending') {
         const first = nodeEvents[0].timestamp;
-        const last = status === 'active' ? new Date().toISOString() : nodeEvents[nodeEvents.length - 1].timestamp;
+        const last = status === 'active'
+          ? new Date().toISOString()
+          : nodeEvents[nodeEvents.length - 1].timestamp;
         elapsed = diffMs(first, last);
       }
 
-      // 生成描述信息
+      // 描述
       let message: string | undefined;
       if (status === 'active' && nodeEvents.length > 0) {
         message = nodeEvents[nodeEvents.length - 1].message;
       } else if (status === 'done' && nodeEvents.length > 0) {
-        // 使用最后一个事件的消息（通常是完成消息）
-        const lastMsg = nodeEvents[nodeEvents.length - 1].message;
-        message = lastMsg;
+        message = nodeEvents[nodeEvents.length - 1].message;
       } else if (status === 'pending') {
         message = '等待中...';
       } else if (status === 'error') {
@@ -271,32 +259,16 @@ export function WorkflowTimeline({ events }: WorkflowTimelineProps) {
       if (def.children) {
         children = def.children.map((child) => {
           const childEvents = stageEvents.get(child.stage) || [];
-          const isChildDone =
-            allDone ||
-            !!(
-              activeStage &&
-              TIMELINE_DEF.findIndex(
-                (d) =>
-                  d.stage === activeStage ||
-                  d.children?.some((c) => c.stage === activeStage),
-              ) > idx
-            );
+          const childDone = allDone || (activeStage && def.stages.includes(activeStage))
+            ? false
+            : (nodeEvents.length > 0 && status !== 'active');
 
-          // 解析进度
-          let current = 0;
-          let total = 0;
+          let current = 0, total = 0;
           if (childEvents.length > 0) {
             const latestMsg = childEvents[childEvents.length - 1].message;
             const progress = parseSearchProgress(latestMsg);
-            if (progress) {
-              current = progress.current;
-              total = progress.total;
-            } else {
-              // fallback: 使用 percent 推算
-              const pct = childEvents[childEvents.length - 1].percent;
-              current = Math.round(pct);
-              total = 100;
-            }
+            if (progress) { current = progress.current; total = progress.total; }
+            else { current = Math.round(childEvents[childEvents.length - 1].percent); total = 100; }
           }
 
           return (
@@ -305,7 +277,7 @@ export function WorkflowTimeline({ events }: WorkflowTimelineProps) {
               label={child.label}
               current={current}
               total={total}
-              isDone={isChildDone}
+              isDone={childEvents.length > 0 && status === 'done'}
             />
           );
         });
@@ -323,20 +295,19 @@ export function WorkflowTimeline({ events }: WorkflowTimelineProps) {
       });
     }
 
-    // 如果完成，添加完成节点
+    // 完成/错误终端节点
     if (isCompleted) {
       const completedEvent = events.find((e) => e.stage === 'COMPLETED');
       nodes.push({
-        label: '研究完成',
+        label: flowType === 'direct' ? '回答完成' : '研究完成',
         icon: <CheckCircle className="h-4 w-4" />,
         status: 'done',
-        message: completedEvent?.message || '报告已生成',
+        message: completedEvent?.message || (flowType === 'direct' ? '回答已生成' : '报告已生成'),
         color: STAGE_COLORS.COMPLETED,
         isLast: true,
       });
     }
 
-    // 如果出错，添加错误节点
     if (isError) {
       const errorEvent = events.find((e) => e.stage === 'ERROR');
       nodes.push({
@@ -350,7 +321,6 @@ export function WorkflowTimeline({ events }: WorkflowTimelineProps) {
     }
 
     return nodes;
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- tick 用于实时更新活跃节点耗时
   }, [events, tick]);
 
   return (

@@ -1,7 +1,5 @@
 package com.example.deepresearch.api.dto;
 
-import com.fasterxml.jackson.annotation.JsonFormat;
-
 import java.time.Instant;
 
 /**
@@ -16,7 +14,7 @@ import java.time.Instant;
  * @param nodeName  当前节点名称（如 "plan", "web_search"）
  * @param percent   总体完成百分比（0.0 ~ 100.0）
  * @param message   人类可读的进度描述
- * @param timestamp 事件时间戳
+ * @param timestamp 事件时间戳（ISO-8601 格式，由 Jackson JavaTimeModule 自动序列化）
  */
 public record ProgressEvent(
     String sessionId,
@@ -24,7 +22,6 @@ public record ProgressEvent(
     String nodeName,
     double percent,
     String message,
-    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss.SSSZ")
     Instant timestamp
 ) {
     /** 便捷构造 — 自动填充时间戳 */

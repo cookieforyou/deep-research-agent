@@ -14,12 +14,19 @@ interface ReportData {
 /**
  * 获取完整研究报告。
  *
- * 优先从 history API（PG 持久化）获取，含完整 report / sourceIndex / findings。
- * 404 时回退到 research status API（内存中刚完成的活跃会话，尚未持久化到 PG）。
+ * 主动轮询模式：不依赖 SSE 的 COMPLETED 信号。
+ * 优先从 history API 获取，404 时回退到 research status API，
+ * 报告为空时每 2 秒自动重试，直到获取到报告。
+ *
+ * SSE COMPLETED 到达时会通过 refetchSignal 立即触发拉取（比轮询更快）。
+ *
+ * @param sessionId      会话 ID
+ * @param enabled        是否启用
+ * @param refetchSignal  变化时触发立即重新拉取（SSE COMPLETED 到达时递增）
  */
-export function useReportData(sessionId: string, enabled: boolean) {
+export function useReportData(sessionId: string, enabled: boolean, refetchSignal = 0) {
   return useQuery<ReportData>({
-    queryKey: ['report', sessionId],
+    queryKey: ['report', sessionId, refetchSignal],
     queryFn: async () => {
       // 优先：history detail API（PG 持久化，含 report + sourceIndex + findings）
       try {
@@ -40,7 +47,7 @@ export function useReportData(sessionId: string, enabled: boolean) {
         // history API 404 / 无报告 → 回退
       }
 
-      // 回退：research status API（内存中刚完成的会话）
+      // 回退：research status API（内存中刚完成或进行中的会话）
       const status = await researchApi.getStatus(sessionId);
       return {
         report: status.report || '',
@@ -50,7 +57,12 @@ export function useReportData(sessionId: string, enabled: boolean) {
       };
     },
     enabled: !!sessionId && enabled,
-    staleTime: 5 * 60 * 1000,
+    // 报告为空时每 2 秒轮询，获取到后停止
+    refetchInterval: (query) => {
+      if (query.state.data?.report) return false;
+      return 2000;
+    },
+    staleTime: 0,
     refetchOnWindowFocus: false,
     retry: 1,
   });

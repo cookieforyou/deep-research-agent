@@ -142,7 +142,11 @@ public class ResearchController {
                 if (state.hasError()) {
                     return ResponseEntity.ok(ResearchResponse.error(sessionId, state.error()));
                 }
+                // 研究报告（深度研究）或直接回答（闲聊/事实查询）
                 String report = state.finalReport();
+                if (report == null || report.isEmpty()) {
+                    report = state.directAnswer();
+                }
                 if (report != null && !report.isEmpty()) {
                     return ResponseEntity.ok(ResearchResponse.completed(
                         sessionId, report, 0, 0, state.iteration()));

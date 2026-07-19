@@ -11,6 +11,11 @@ import org.springframework.security.oauth2.jwt.ReactiveJwtDecoder;
 import org.springframework.security.oauth2.jwt.ReactiveJwtDecoders;
 import org.springframework.security.web.server.SecurityWebFilterChain;
 import org.springframework.security.web.server.context.NoOpServerSecurityContextRepository;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.reactive.CorsConfigurationSource;
+import org.springframework.web.cors.reactive.UrlBasedCorsConfigurationSource;
+
+import java.util.List;
 
 /**
  * Spring Security 配置 — JWT + OAuth2 无状态认证 + 方法级权限.
@@ -34,6 +39,9 @@ public class SecurityConfig {
     @Bean
     public SecurityWebFilterChain securityFilterChain(ServerHttpSecurity http) {
         return http
+            // CORS（允许前端 localhost:3000 跨域请求）
+            .cors(cors -> cors.configurationSource(corsConfigurationSource()))
+
             // 禁用 CSRF（REST API 不使用浏览器 Cookie）
             .csrf(ServerHttpSecurity.CsrfSpec::disable)
 
@@ -86,5 +94,22 @@ public class SecurityConfig {
     @Bean
     public ReactiveJwtDecoder jwtDecoder() {
         return ReactiveJwtDecoders.fromIssuerLocation(issuerUri);
+    }
+
+    /**
+     * CORS 配置：允许前端 localhost:3000 跨域访问（SSE 直连场景）。
+     */
+    @Bean
+    public CorsConfigurationSource corsConfigurationSource() {
+        CorsConfiguration config = new CorsConfiguration();
+        config.setAllowedOrigins(List.of("http://localhost:3000"));
+        config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
+        config.setAllowedHeaders(List.of("*"));
+        config.setExposedHeaders(List.of("*"));
+        config.setAllowCredentials(true);
+
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/**", config);
+        return source;
     }
 }

@@ -1,34 +1,46 @@
 'use client';
 
+import { useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { historyApi } from '@/lib/api';
 import { parseEvalScores } from './useHistoryList';
 import type { EvalResult } from '@/lib/types';
 
 /**
- * 异步获取评估数据
+ * 异步获取评估数据（仅深度研究有评估，直接回答无）。
  *
- * 研究完成后，EvalAgent 异步执行评估（通常需要 10-30 秒）。
- * 此 Hook 轮询 GET /api/history/{sessionId}，检查 evalScores 是否已写入。
+ * 研究完成后 EvalAgent 异步执行评估（通常 10-30 秒）。
+ * 最多轮询 6 次（30 秒），超时后停止避免无限 history 404。
  *
- * 注意：依赖后端 B5.2 API。API 未实现时静默失败，返回 null。
+ * @param sessionId      会话 ID
+ * @param enabled        是否启用
+ * @param maxAttempts    最大轮询次数（默认 6）
  */
-export function useEvalData(sessionId: string, enabled: boolean) {
-  const { data } = useQuery({
+export function useEvalData(
+  sessionId: string,
+  enabled: boolean,
+  maxAttempts = 6,
+) {
+  const attemptRef = useRef(0);
+
+  const { data } = useQuery<EvalResult | null>({
     queryKey: ['eval', sessionId],
     queryFn: async () => {
       try {
         const detail = await historyApi.getDetail(sessionId);
-        return parseEvalScores(detail.evalScores);
+        const result = parseEvalScores(detail.evalScores);
+        if (result) return result;
       } catch {
-        // API 未实现时静默返回 null
-        return null;
+        // 404 — 研究未持久化或无评估数据
       }
+      return null;
     },
     enabled: !!sessionId && enabled,
     refetchInterval: (query) => {
-      // 已获取到数据则停止轮询
-      return query.state.data ? false : 5000;
+      if (query.state.data) return false; // 已获取到
+      if (attemptRef.current >= maxAttempts) return false; // 超时
+      attemptRef.current += 1;
+      return 5000;
     },
     staleTime: 0,
     retry: 0,

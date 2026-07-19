@@ -1,6 +1,6 @@
 'use client';
 
-import { use, Suspense } from 'react';
+import { use, Suspense, useState, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
 import { useResearchSse } from '@/hooks/useResearchSse';
@@ -18,7 +18,6 @@ import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { CheckCircle, WifiOff } from 'lucide-react';
 
-// 代码分割：报告渲染相关组件延迟加载（react-markdown ~150 kB gzip）
 const ReportViewer = dynamic(
   () => import('@/components/research/ReportViewer').then((m) => ({ default: m.ReportViewer })),
   { loading: () => <ReportSkeleton />, ssr: false },
@@ -39,13 +38,6 @@ const EvalRadarChart = dynamic(
   { ssr: false },
 );
 
-/**
- * 研究详情页。
- *
- * 两种入口：
- *   - 新发起的研究：连接 SSE 流获取实时进度 → 完成后拉取报告
- *   - 历史记录查看：直接拉取报告（跳过 SSE），报告立即可用
- */
 export default function ResearchDetailPage({
   params,
 }: {
@@ -55,27 +47,33 @@ export default function ResearchDetailPage({
   const router = useRouter();
   const { online } = useNetworkStatus();
 
-  // 始终尝试拉取报告（历史记录立即可用，新研究等完成后才有）
+  // SSE 始终立即连接（不等待 report 查询），确保 Sink 在后端推送事件前就绪
+  const { events, status, connect, disconnect, isCompleted, hasError, isCacheHit } =
+    useResearchSse(sessionId);
+
+  // completionTick: SSE COMPLETED 到达时递增，触发 useReportData 重新拉取
+  const [completionTick, setCompletionTick] = useState(0);
+  useEffect(() => {
+    if (isCompleted) setCompletionTick((t) => t + 1);
+  }, [isCompleted]);
+
   const {
     data: reportData,
     isLoading: reportLoading,
     isError: reportError,
-  } = useReportData(sessionId, true);
+  } = useReportData(sessionId, true, completionTick);
 
   const report = reportData?.report || '';
   const metadata = reportData?.metadata;
-  const isReportReady = !reportLoading;
-  // 报告已存在 → 历史记录，无需 SSE
   const isAlreadyCompleted = !!report;
 
-  // 仅当报告查询完成且未找到已完成报告时，才连接 SSE（新发起的研究）
-  // 关键：loading 期间不启 SSE，避免历史记录也短暂连 SSE
-  const { events, status, connect, isCompleted, hasError, isCacheHit } =
-    useResearchSse(sessionId, isReportReady && !isAlreadyCompleted);
+  // 历史记录：报告加载完成后断开无用的 SSE
+  useEffect(() => {
+    if (isAlreadyCompleted) disconnect();
+  }, [isAlreadyCompleted, disconnect]);
 
   const showReport = (isCompleted || isAlreadyCompleted || isCacheHit) && !reportLoading && !!report;
 
-  // 异步拉取评估分数（轮询 5s 间隔）
   const evalResult = useEvalData(sessionId, isCompleted || isAlreadyCompleted || isCacheHit);
 
   const handleRetry = () => {
@@ -84,7 +82,6 @@ export default function ResearchDetailPage({
 
   return (
     <div className="flex h-[calc(100vh-4rem)]">
-      {/* Sidebar */}
       <Sidebar
         title={showReport ? '评估与分析' : '研究上下文'}
         className="hidden lg:flex"
@@ -103,29 +100,38 @@ export default function ResearchDetailPage({
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
                   <CheckCircle className="h-3.5 w-3.5 text-green-500 shrink-0" />
                   <span>{metadata.wordCount.toLocaleString()} 字</span>
-                  <span>·</span>
-                  <span>{metadata.citationCount} 引用</span>
+                  {metadata.citationCount > 0 && (
+                    <>
+                      <span>·</span>
+                      <span>{metadata.citationCount} 引用</span>
+                    </>
+                  )}
                 </div>
               )}
               <Separator />
 
-              {evalResult ? (
-                <div className="space-y-3">
-                  <Suspense fallback={<EvalScoreSkeleton />}>
-                    <EvalScoreCard evalResult={evalResult} />
-                  </Suspense>
-                  <Suspense fallback={null}>
-                    <EvalRadarChart evalResult={evalResult} height={200} />
-                  </Suspense>
-                </div>
+              {/* 深度研究：有引用 → 显示评估；简单问答：无引用 → 不显示评估 */}
+              {(metadata?.citationCount ?? 0) > 0 ? (
+                evalResult ? (
+                  <div className="space-y-3">
+                    <Suspense fallback={<EvalScoreSkeleton />}>
+                      <EvalScoreCard evalResult={evalResult} />
+                    </Suspense>
+                    <Suspense fallback={null}>
+                      <EvalRadarChart evalResult={evalResult} height={200} />
+                    </Suspense>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <p className="text-xs font-medium text-sidebar-foreground">评估中...</p>
+                    <p className="text-xs text-muted-foreground">
+                      AI 正在异步评估报告质量（5维评分），预计 10-30 秒完成。
+                    </p>
+                    <EvalScoreSkeleton />
+                  </div>
+                )
               ) : (
-                <div className="space-y-2">
-                  <p className="text-xs font-medium text-sidebar-foreground">评估中...</p>
-                  <p className="text-xs text-muted-foreground">
-                    AI 正在异步评估报告质量（5维评分），预计 10-30 秒完成。
-                  </p>
-                  <EvalScoreSkeleton />
-                </div>
+                <p className="text-xs text-muted-foreground">简单问答，无需评估</p>
               )}
 
               <Separator />
@@ -142,7 +148,6 @@ export default function ResearchDetailPage({
 
       <SidebarToggle />
 
-      {/* Main */}
       <main className="flex-1 overflow-y-auto">
         <div className="flex items-center justify-between px-6 py-3 border-b bg-background/50 backdrop-blur-sm sticky top-0 z-10">
           <h2 className="text-sm font-semibold">
@@ -192,7 +197,7 @@ export default function ResearchDetailPage({
                   <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 shrink-0" />
                   <div>
                     <p className="text-sm font-medium text-green-800 dark:text-green-300">
-                      研究完成
+                      {isCacheHit ? '缓存命中' : '研究完成'}
                     </p>
                     <p className="text-xs text-green-700/70 dark:text-green-400/70">
                       报告由 AI 多智能体协同生成，引用可点击溯源

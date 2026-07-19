@@ -299,9 +299,9 @@ public class ResearchOrchestratorService {
             businessMetrics.recordWorkflowCompleted("unknown", "error", durationMs);
             log.error("[Orchestrator] 工作流执行异常: sessionId={}", sessionId, e);
             progressPublisher.error(sessionId, e);
-        } finally {
             activeSessions.remove(sessionId);
-            // 统一清理会话级 Token 统计（含 error 路径——曾只在成功路径清理，失败会话残留）
+        } finally {
+            // 统一清理会话级 Token 统计
             tokenUsageTracker.clearSession(sessionId);
         }
     }
