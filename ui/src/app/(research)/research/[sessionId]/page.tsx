@@ -1,12 +1,13 @@
 'use client';
 
-import { use, Suspense, useState, useEffect } from 'react';
+import { use, Suspense, useState, useEffect, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
 import { useResearchSse } from '@/hooks/useResearchSse';
 import { useReportData } from '@/hooks/useReportData';
 import { useEvalData } from '@/hooks/useEvalData';
 import { useNetworkStatus } from '@/hooks/useNetworkStatus';
+import { researchApi } from '@/lib/api';
 import { SseStatusBadge } from '@/components/research/SseStatusBadge';
 import { WorkflowTimeline } from '@/components/research/WorkflowTimeline';
 import { CacheHitBanner } from '@/components/research/CacheHitBanner';
@@ -48,14 +49,62 @@ export default function ResearchDetailPage({
   const { online } = useNetworkStatus();
 
   // SSE 始终立即连接（不等待 report 查询），确保 Sink 在后端推送事件前就绪
-  const { events, status, connect, disconnect, isCompleted, hasError, isCacheHit } =
+  const { events, status, connect, disconnect, isCompleted, hasError, isCacheHit, timedOut } =
     useResearchSse(sessionId);
 
   // completionTick: SSE COMPLETED 到达时递增，触发 useReportData 重新拉取
   const [completionTick, setCompletionTick] = useState(0);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   useEffect(() => {
     if (isCompleted) setCompletionTick((t) => t + 1);
   }, [isCompleted]);
+
+  // SSE 超时降级：5 秒无事件 → 轮询 GET /api/research/{sessionId}
+  useEffect(() => {
+    if (!timedOut) return;
+    console.log('[ResearchDetail] SSE 超时，启动轮询降级:', sessionId);
+
+    const poll = async () => {
+      try {
+        const res = await researchApi.getStatus(sessionId);
+        if (res.status === 'COMPLETED' && res.report) {
+          setCompletionTick((t) => t + 1);
+          if (pollRef.current) {
+            clearInterval(pollRef.current);
+            pollRef.current = null;
+          }
+        } else if (res.status === 'ERROR') {
+          console.warn('[ResearchDetail] 轮询发现研究失败');
+          if (pollRef.current) {
+            clearInterval(pollRef.current);
+            pollRef.current = null;
+          }
+        }
+      } catch {
+        // 网络错误，静默重试
+      }
+    };
+
+    poll(); // 立即执行一次
+    pollRef.current = setInterval(poll, 3000); // 每 3 秒轮询
+
+    return () => {
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+    };
+  }, [timedOut, sessionId]);
+
+  // 收到 SSE 事件后停止轮询
+  useEffect(() => {
+    if (events.length > 0 && pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+      console.log('[ResearchDetail] SSE 恢复，停止轮询');
+    }
+  }, [events.length]);
 
   const {
     data: reportData,

@@ -111,6 +111,13 @@ public class ResearchController {
      * GET /api/research/{sessionId}/stream
      * Accept: text/event-stream
      * </p>
+     *
+     * <h3>断线重连恢复</h3>
+     * <p>
+     * Sink 使用 {@code replay().limit(100)}，新订阅者自动获取历史事件回放。
+     * 针对 Sink 延迟清理后被清理的边缘场景（研究完成后超过 5 分钟重连），
+     * 检查 activeSessions 中的最终状态，若有报告则推送合成的 COMPLETED 事件。
+     * </p>
      */
     @GetMapping(value = "/{sessionId}/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public Flux<ServerSentEvent<ProgressEvent>> streamProgress(
@@ -118,7 +125,39 @@ public class ResearchController {
     ) {
         log.info("[API] SSE 客户端连接: sessionId={}", sessionId);
 
-        return progressPublisher.getStream(sessionId)
+        // 边缘场景：Sink 已被延迟清理（研究完成后超过 5 分钟），
+        // getOrCreateSink 会创建空 Sink，客户端将永久等待。
+        // 此时检查 activeSessions 中的最终状态，若有结果则补发 COMPLETED 事件。
+        boolean isNewSink = !progressPublisher.hasActiveSink(sessionId);
+        Flux<ProgressEvent> progressFlux = progressPublisher.getStream(sessionId);
+
+        if (isNewSink) {
+            orchestrator.getSessionState(sessionId).ifPresent(state -> {
+                // 研究已完成（有报告或有错误）
+                if (state.hasError()) {
+                    log.info("[API] 已完成会话重连（错误），推送合成 ERROR: sessionId={}", sessionId);
+                    progressPublisher.publish(sessionId, new ProgressEvent(
+                        sessionId, ProgressEvent.ResearchStage.ERROR, "error", 100.0,
+                        state.error()));
+                    progressPublisher.error(sessionId, new RuntimeException(state.error()));
+                } else {
+                    String report = state.finalReport();
+                    if (report == null || report.isEmpty()) {
+                        report = state.directAnswer();
+                    }
+                    if (report != null && !report.isEmpty()) {
+                        log.info("[API] 已完成会话重连，推送合成 COMPLETED: sessionId={}", sessionId);
+                        int wordCount = countWords(report);
+                        progressPublisher.publish(sessionId, new ProgressEvent(
+                            sessionId, ProgressEvent.ResearchStage.COMPLETED, "done", 100.0,
+                            String.format("研究完成: %d 字报告", wordCount)));
+                        progressPublisher.complete(sessionId);
+                    }
+                }
+            });
+        }
+
+        return progressFlux
             .map(event -> ServerSentEvent.<ProgressEvent>builder()
                 .id(sessionId)
                 .event(event.stage().name().toLowerCase())
