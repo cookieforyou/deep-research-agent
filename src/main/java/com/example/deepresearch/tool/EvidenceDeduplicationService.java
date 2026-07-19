@@ -72,10 +72,11 @@ public class EvidenceDeduplicationService {
         }
 
         // 步骤 1: URL 精确去重（相同 URL 保留评分更高的）
+        // 空 URL 的证据（如本地知识库文档）用 sourceId 作为去重键，防止被静默丢弃
         Map<String, Evidence> urlMap = new LinkedHashMap<>();
         for (Evidence e : all) {
-            if (e.url() == null || e.url().isBlank()) continue;
-            urlMap.merge(e.url(), e, (a, b) -> a.score() >= b.score() ? a : b);
+            String key = (e.url() != null && !e.url().isBlank()) ? e.url() : e.sourceId();
+            urlMap.merge(key, e, (a, b) -> a.score() >= b.score() ? a : b);
         }
         List<Evidence> afterUrl = new ArrayList<>(urlMap.values());
         int urlDupes = before - afterUrl.size();

@@ -138,16 +138,36 @@ public class SearchTools {
         return vectorStoreService.similaritySearch(query, tenantId, 4, 0.7)
             .stream().map(d -> {
                 String content = d.getText();
-                String source = d.getMetadata().getOrDefault("source_url",
-                    d.getMetadata().getOrDefault("doc_title", "unknown")).toString();
+
+                // 标题：优先 doc_title（如研报标题），兜底 source / source_url / docId
+                String title = blankToNull(d.getMetadata().getOrDefault("doc_title", "").toString());
+                if (title == null) {
+                    title = blankToNull(d.getMetadata().getOrDefault("source", "").toString());
+                }
+                if (title == null) {
+                    title = blankToNull(d.getMetadata().getOrDefault("source_url", "").toString());
+                }
+                if (title == null) {
+                    title = d.getId();
+                }
+
+                // URL/唯一标识：优先 source_url，兜底 source / docId
+                String url = blankToNull(d.getMetadata().getOrDefault("source_url", "").toString());
+                if (url == null) {
+                    url = blankToNull(d.getMetadata().getOrDefault("source", "").toString());
+                }
+                if (url == null) {
+                    url = d.getId();
+                }
+
                 double score = ((Number) d.getMetadata()
                     .getOrDefault("score", 0.0)).doubleValue();
                 // 按 来源+内容前缀 去重注册（同一文档块可能被多个查询命中）
-                String dedupKey = source + "|" + content.substring(0, Math.min(64, content.length()));
+                String dedupKey = url + "|" + content.substring(0, Math.min(64, content.length()));
                 String sourceId = c != null
-                    ? c.register(dedupKey, source, source, content, "internal", score)
+                    ? c.register(dedupKey, title, url, content, "internal", score)
                     : "";
-                return new DocSearchResult(sourceId, content, source, score);
+                return new DocSearchResult(sourceId, content, title, score);
             }).toList();
     }
 
@@ -234,5 +254,10 @@ public class SearchTools {
         Map<String, CollectedSource> snapshot() {
             return new LinkedHashMap<>(sources);
         }
+    }
+
+    /** 空字符串 → null（用于 metadata 值处理） */
+    private static String blankToNull(String s) {
+        return (s != null && !s.isBlank()) ? s : null;
     }
 }

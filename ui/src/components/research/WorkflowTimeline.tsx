@@ -239,13 +239,16 @@ export function WorkflowTimeline({ events }: WorkflowTimelineProps) {
         status = activeIdx === -1 || idx < activeIdx ? 'done' : 'pending';
       }
 
-      // 耗时
+      // 耗时（需先按时间排序：flatMap 合并多阶段事件时不保证时间顺序）
       let elapsed: number | undefined;
       if (nodeEvents.length > 0 && status !== 'pending') {
-        const first = nodeEvents[0].timestamp;
+        const sorted = [...nodeEvents].sort(
+          (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
+        );
+        const first = sorted[0].timestamp;
         const last = status === 'active'
           ? new Date().toISOString()
-          : nodeEvents[nodeEvents.length - 1].timestamp;
+          : sorted[sorted.length - 1].timestamp;
         elapsed = diffMs(first, last);
       }
 

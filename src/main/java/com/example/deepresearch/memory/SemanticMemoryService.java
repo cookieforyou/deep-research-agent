@@ -215,7 +215,8 @@ public class SemanticMemoryService {
                 doc.getMetadata().put("chunk_index", i);
                 doc.getMetadata().put("total_chunks", chunks.size());
                 doc.getMetadata().put("created_at", now);
-                doc.getMetadata().put("source_url", "");  // 研报无外部 URL
+                // 不设置 source_url（研报无外部 URL），
+                // SearchTools.localSearch 会回退到 d.getId() 作为唯一标识
                 documents.add(doc);
             }
 

@@ -125,7 +125,7 @@ export default function ResearchDetailPage({
 
   const { data: evalResult, unavailable: evalUnavailable } = useEvalData(
     sessionId,
-    isCompleted || isAlreadyCompleted || isCacheHit,
+    isCompleted || isAlreadyCompleted || isCacheHit
   );
 
   const handleRetry = () => {
