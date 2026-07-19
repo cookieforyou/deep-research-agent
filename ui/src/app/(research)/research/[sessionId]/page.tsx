@@ -123,7 +123,10 @@ export default function ResearchDetailPage({
 
   const showReport = (isCompleted || isAlreadyCompleted || isCacheHit) && !reportLoading && !!report;
 
-  const evalResult = useEvalData(sessionId, isCompleted || isAlreadyCompleted || isCacheHit);
+  const { data: evalResult, unavailable: evalUnavailable } = useEvalData(
+    sessionId,
+    isCompleted || isAlreadyCompleted || isCacheHit,
+  );
 
   const handleRetry = () => {
     router.push('/');
@@ -169,6 +172,10 @@ export default function ResearchDetailPage({
                     <Suspense fallback={null}>
                       <EvalRadarChart evalResult={evalResult} height={200} />
                     </Suspense>
+                  </div>
+                ) : evalUnavailable ? (
+                  <div className="space-y-2">
+                    <p className="text-xs text-muted-foreground">该报告暂无评估数据</p>
                   </div>
                 ) : (
                   <div className="space-y-2">

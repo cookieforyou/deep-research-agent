@@ -65,9 +65,9 @@ export function HistoryRow({ item, onDelete, onReRun }: HistoryRowProps) {
               </span>
             </>
           ) : isCompleted ? (
-            <span className="text-xs text-muted-foreground">评估中...</span>
-          ) : (
             <span className="text-xs text-muted-foreground">-</span>
+          ) : (
+            <span className="text-xs text-muted-foreground">评估中...</span>
           )}
         </div>
       </td>
