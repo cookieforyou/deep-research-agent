@@ -40,9 +40,9 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
+import static com.example.deepresearch.common.constant.Constants.CITATION_PATTERN;
 import static org.bsc.langgraph4j.StateGraph.END;
 import static org.bsc.langgraph4j.StateGraph.START;
 
@@ -575,8 +575,7 @@ public class ResearchWorkflow {
                     // 步骤 5: 从报告中提取实际引用的 sourceId 列表（去重保序）
                     // 避免下游重复扫描报告全文
                     LinkedHashSet<String> citedIds = new LinkedHashSet<>();
-                    Matcher citationMatcher = Pattern.compile("\\[(WEB|LOCAL)\\d+\\]")
-                            .matcher(finalReport);
+                    Matcher citationMatcher = CITATION_PATTERN.matcher(finalReport);
                     while (citationMatcher.find()) {
                         citedIds.add(citationMatcher.group()
                             .replace("[", "").replace("]", ""));

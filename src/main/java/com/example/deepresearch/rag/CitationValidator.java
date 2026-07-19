@@ -5,10 +5,17 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
-import java.util.*;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+
+import static com.example.deepresearch.common.constant.Constants.CITATION_PATTERN;
 
 /**
  * 引用合法性校验器 — 自动剔除 LLM 幻觉产生的虚假引用，渲染带链接的参考资料列表.
@@ -35,9 +42,6 @@ import java.util.stream.Collectors;
 public class CitationValidator {
 
     private static final Logger log = LoggerFactory.getLogger(CitationValidator.class);
-
-    /** 匹配引用标记：[WEB1]/[LOCAL3] */
-    private static final Pattern CITATION_PATTERN = Pattern.compile("\\[(WEB|LOCAL)\\d+\\]");
 
     /**
      * 校验报告中的引用合法性.
@@ -189,13 +193,13 @@ public class CitationValidator {
      * 引用校验结果.
      */
     public record ValidationResult(
-        /** 清洗后的报告正文 */
+        /* 清洗后的报告正文 */
         String cleanedReport,
-        /** 引用总数（含非法） */
+        /* 引用总数（含非法） */
         int totalCitations,
-        /** 合法引用数 */
+        /* 合法引用数 */
         int validCitations,
-        /** 被移除的非法引用列表 */
+        /* 被移除的非法引用列表 */
         List<String> removedCitations
     ) {}
 }

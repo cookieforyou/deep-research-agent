@@ -11,6 +11,7 @@ import org.springframework.stereotype.Service;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Pattern;
 
 /**
  * 语义记忆服务 — 基于 Milvus 的历史研究向量检索与索引.
@@ -238,9 +239,7 @@ public class SemanticMemoryService {
     // =========================== 私有辅助方法 ===========================
 
     /** 匹配正文引用链接 [[WEB12]](url) 或 [[LOCAL3]](url)，还原为裸标记 [WEB12] */
-    private static final java.util.regex.Pattern LINKED_CITATION_PATTERN =
-        java.util.regex.Pattern.compile(
-            "\\[\\[(WEB\\d+|LOCAL\\d+)\\]\\]\\([^)]*\\)");
+    private static final Pattern LINKED_CITATION_PATTERN = Pattern.compile("\\[\\[(WEB\\d+|LOCAL\\d+)]]\\([^)]*\\)");
 
     /**
      * 索引前清洗报告文本（仅影响 Milvus 向量化文本，PG 中保留完整报告）.
