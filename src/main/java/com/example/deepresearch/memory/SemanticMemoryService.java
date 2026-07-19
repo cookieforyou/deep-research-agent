@@ -237,10 +237,10 @@ public class SemanticMemoryService {
 
     // =========================== 私有辅助方法 ===========================
 
-    /** 匹配正文引用链接 [[WEB12]](url) 或 [[LOCAL3]](url)，用于索引前还原为 [WEB12] */
+    /** 匹配正文引用链接 [[WEB12]](url) 或 [[LOCAL3]](url)，还原为裸标记 [WEB12] */
     private static final java.util.regex.Pattern LINKED_CITATION_PATTERN =
         java.util.regex.Pattern.compile(
-            "\\[(\\[(?:WEB|LOCAL)\\d+(?:_\\d+(?:-\\d+)?)?\\])\\]\\([^)]*\\)");
+            "\\[\\[(WEB\\d+|LOCAL\\d+)\\]\\]\\([^)]*\\)");
 
     /**
      * 索引前清洗报告文本（仅影响 Milvus 向量化文本，PG 中保留完整报告）.
@@ -264,7 +264,7 @@ public class SemanticMemoryService {
         }
 
         // 引用链接还原为纯标记
-        cleaned = LINKED_CITATION_PATTERN.matcher(cleaned).replaceAll("$1");
+        cleaned = LINKED_CITATION_PATTERN.matcher(cleaned).replaceAll("[$1]");
 
         return cleaned;
     }

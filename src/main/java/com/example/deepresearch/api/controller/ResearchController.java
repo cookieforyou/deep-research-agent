@@ -24,6 +24,7 @@ import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Flux;
 
 import java.time.Duration;
+import java.util.List;
 
 /**
  * 研究 REST 控制器.
@@ -149,7 +150,8 @@ public class ResearchController {
                 }
                 if (report != null && !report.isEmpty()) {
                     int wordCount = countWords(report);
-                    int citationCount = state.evidencePool() != null ? state.evidencePool().size() : 0;
+                    List<String> citedIds = state.citedSourceIds();
+                    int citationCount = citedIds != null ? citedIds.size() : 0;
                     return ResponseEntity.ok(ResearchResponse.completed(
                         sessionId, report, wordCount, citationCount, state.iteration()));
                 }

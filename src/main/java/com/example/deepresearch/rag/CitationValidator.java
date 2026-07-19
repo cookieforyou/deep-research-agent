@@ -36,9 +36,8 @@ public class CitationValidator {
 
     private static final Logger log = LoggerFactory.getLogger(CitationValidator.class);
 
-    /** 匹配引用标记：新版 [WEB1]/[LOCAL3]，兼容旧版 [WEB01_1]/[WEB01_1-1] */
-    private static final Pattern CITATION_PATTERN = Pattern.compile(
-        "\\[(WEB|LOCAL)\\d+(?:_\\d+(?:-\\d+)?)?\\]");
+    /** 匹配引用标记：[WEB1]/[LOCAL3] */
+    private static final Pattern CITATION_PATTERN = Pattern.compile("\\[(WEB|LOCAL)\\d+\\]");
 
     /**
      * 校验报告中的引用合法性.

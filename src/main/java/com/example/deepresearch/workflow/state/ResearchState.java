@@ -89,6 +89,7 @@ public class ResearchState extends AgentState {
         // --- 输出产物 (base) ---
         Map.entry("directAnswer",     Channels.base(() -> "")),
         Map.entry("finalReport",      Channels.base(() -> "")),
+        Map.entry("citedSourceIds",   Channels.base(ArrayList::new)),
         Map.entry("error",            Channels.base(() -> "")),
 
         // --- 消息历史 (appender) ---
@@ -132,6 +133,9 @@ public class ResearchState extends AgentState {
     public String directAnswer()         { return this.<String>value("directAnswer").orElse(""); }
     /** 最终研报 Markdown */
     public String finalReport()          { return this.<String>value("finalReport").orElse(""); }
+    /** Writer 实际引用的 sourceId 列表（去重保序） */
+    @SuppressWarnings("unchecked")
+    public List<String> citedSourceIds() { return (List<String>) value("citedSourceIds").orElse(List.of()); }
     /** 错误信息 */
     public String error()                { return this.<String>value("error").orElse(""); }
 

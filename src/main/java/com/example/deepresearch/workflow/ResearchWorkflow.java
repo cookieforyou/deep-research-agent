@@ -32,10 +32,15 @@ import com.example.deepresearch.security.TenantContext;
 import com.example.deepresearch.service.DynamicPromptService;
 import org.slf4j.MDC;
 
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import static org.bsc.langgraph4j.StateGraph.END;
@@ -507,7 +512,7 @@ public class ResearchWorkflow {
 
                     // 使用 HashMap 而非 Map.of()，因为 Map.of() 不接受 null 值
                     // 当 LLM JSON 解析部分失败时，某些字段可能为 null
-                    Map<String, Object> analyzeOutput = new java.util.HashMap<>();
+                    Map<String, Object> analyzeOutput = new HashMap<>();
                     analyzeOutput.put("findings",
                         result.findings() != null ? result.findings() : List.of());
                     analyzeOutput.put("needsMoreResearch", result.needsMoreResearch());
@@ -567,13 +572,24 @@ public class ResearchWorkflow {
                             result.wordCount(), properties.workflow().minReportWords());
                     }
 
+                    // 步骤 5: 从报告中提取实际引用的 sourceId 列表（去重保序）
+                    // 避免下游重复扫描报告全文
+                    LinkedHashSet<String> citedIds = new LinkedHashSet<>();
+                    Matcher citationMatcher = Pattern.compile("\\[(WEB|LOCAL)\\d+\\]")
+                            .matcher(finalReport);
+                    while (citationMatcher.find()) {
+                        citedIds.add(citationMatcher.group()
+                            .replace("[", "").replace("]", ""));
+                    }
+
                     progressPublisher.publish(sessionId,
                         ProgressEvent.completed(sessionId, ResearchStage.COMPLETED,
                             "write", String.format("报告完成: %d 字, %d 合法引用",
-                                result.wordCount(), validation.validCitations())));
+                                result.wordCount(), citedIds.size())));
 
                     return Map.of(
                         "finalReport", finalReport,
+                        "citedSourceIds", new ArrayList<>(citedIds),
                         "messages", List.of("报告生成完成: " + result.wordCount() + " 字")
                     );
                 });

@@ -9,6 +9,7 @@ import com.example.deepresearch.cache.SemanticCacheService;
 import com.example.deepresearch.cache.SemanticCacheService.CacheResult;
 import com.example.deepresearch.common.config.DeepResearchProperties;
 import com.example.deepresearch.common.model.EvalResult;
+import com.example.deepresearch.common.model.Evidence;
 import com.example.deepresearch.common.model.Finding;
 import com.example.deepresearch.common.observability.BusinessMetrics;
 import com.example.deepresearch.common.observability.TokenUsageTracker;
@@ -26,9 +27,11 @@ import org.springframework.stereotype.Service;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -369,9 +372,10 @@ public class ResearchOrchestratorService {
             boolean degraded = state.isDeepResearch() && state.evidencePool().isEmpty();
             String status = degraded ? "DEGRADED" : "COMPLETED";
 
-            // 持久化完整研究历史（含证据池 JSON + 研究结论 JSON）
-            int citationCount = state.sourceIndex().size();
-            String sourceIndexJson = serializeEvidencePool(state);
+            // 持久化完整研究历史（仅包含 Writer 实际引用的证据）
+            List<String> citedIds = state.citedSourceIds();
+            int citationCount = citedIds.size();
+            String sourceIndexJson = serializeCitedEvidence(state, citedIds);
             String findingsJson = serializeFindings(state);
             memoryManager.recordResearchHistory(
                 sessionId, userId, tenantId, query, report, wordCount,
@@ -504,11 +508,20 @@ public class ResearchOrchestratorService {
      * 以确保前端 EvidenceDrawer 和 CitationPopover 能获取完整的证据信息。
      * </p>
      */
-    private String serializeEvidencePool(ResearchState state) {
+    /**
+     * 从证据池中筛选 Writer 实际引用的证据，序列化为 JSON。
+     * 未引用的证据不入库，前端引用列表自动精准。
+     */
+    private String serializeCitedEvidence(ResearchState state, List<String> citedIds) {
         try {
-            return objectMapper.writeValueAsString(state.evidencePool());
+            if (citedIds.isEmpty()) return "[]";
+            Set<String> idSet = new LinkedHashSet<>(citedIds);
+            List<Evidence> cited = state.evidencePool().stream()
+                .filter(e -> idSet.contains(e.sourceId()))
+                .toList();
+            return objectMapper.writeValueAsString(cited);
         } catch (Exception e) {
-            log.warn("[Orchestrator] evidencePool 序列化失败: {}", e.getMessage());
+            log.warn("[Orchestrator] 证据序列化失败: {}", e.getMessage());
             return "[]";
         }
     }
