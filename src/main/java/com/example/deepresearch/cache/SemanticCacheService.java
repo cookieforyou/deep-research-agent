@@ -132,6 +132,9 @@ public class SemanticCacheService {
             String report = history.getReport();
             int wordCount = history.getWordCount();
             matchedQuery = history.getQuery(); // PG 中记录的原始查询（更准确）
+            String sourceIndex = history.getSourceIndex();
+            String findings = history.getFindings();
+            int citationCount = history.getCitationCount();
 
             if (report == null || report.isBlank()) {
                 log.warn("[SemanticCache] 历史报告为空: sessionId={}", sessionId);
@@ -148,7 +151,7 @@ public class SemanticCacheService {
             businessMetrics.recordCacheAccess(true);
 
             return new CacheResult(true, report, score, matchedQuery,
-                sessionId, history.getWordCount());
+                sessionId, wordCount, sourceIndex, findings, citationCount);
 
         } catch (Exception e) {
             log.warn("[SemanticCache] 缓存检查异常（优雅降级，走正常研究流程）: {}",
@@ -168,6 +171,9 @@ public class SemanticCacheService {
      * @param matchedQuery     匹配到的历史查询
      * @param matchedSessionId 匹配到的历史会话 ID
      * @param wordCount        报告字数
+     * @param sourceIndex      证据索引 JSON（供前端引用溯源）
+     * @param findings         研究结论 JSON（供前端"关键发现"渲染）
+     * @param citationCount    引用来源数
      */
     public record CacheResult(
         boolean hit,
@@ -175,11 +181,14 @@ public class SemanticCacheService {
         double score,
         String matchedQuery,
         String matchedSessionId,
-        int wordCount
+        int wordCount,
+        String sourceIndex,
+        String findings,
+        int citationCount
     ) {
         /** 空结果（缓存未命中或异常） */
         public static CacheResult empty() {
-            return new CacheResult(false, null, 0.0, null, null, 0);
+            return new CacheResult(false, null, 0.0, null, null, 0, null, null, 0);
         }
     }
 }

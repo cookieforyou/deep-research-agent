@@ -146,7 +146,7 @@ public class ResearchOrchestratorService {
             if (deepResearch) {
                 CacheResult cacheResult = checkSemanticCache(query, tenantId);
                 if (cacheResult.hit()) {
-                    handleCacheHit(sessionId, query, cacheResult);
+                    handleCacheHit(sessionId, query, userId, tenantId, cacheResult);
                     return; // 跳过完整工作流
                 }
             }
@@ -199,17 +199,26 @@ public class ResearchOrchestratorService {
     }
 
     /**
-     * 处理缓存命中 — 推送 SSE 事件并完成会话.
+     * 处理缓存命中 — 推送 SSE 事件、持久化到 PG 并完成会话.
      * <p>
-     * 缓存命中的事件流：
+     * 缓存命中的完整流程：
      * <ol>
-     *   <li>CACHE_HIT 阶段事件（标记 source=cache）</li>
-     *   <li>COMPLETED 阶段事件（附带报告摘要）</li>
-     *   <li>progressPublisher.complete() 关闭 SSE 流</li>
+     *   <li>创建 SSE Sink + 推送 CACHE_HIT 事件</li>
+     *   <li>推送 COMPLETED 事件 + 关闭 SSE 流</li>
+     *   <li>将缓存报告持久化到 PG research_history（新 sessionId），
+     *       确保前端通过 GET /api/history/{sessionId} 可获取完整报告</li>
+     *   <li>写入 Redis 短期记忆（供后续对话上下文）</li>
      * </ol>
      * </p>
+     *
+     * @param sessionId 新会话 ID
+     * @param query     用户查询
+     * @param userId    用户 ID
+     * @param tenantId  租户 ID
+     * @param result    缓存命中结果（含完整报告 + 证据 + 结论）
      */
-    private void handleCacheHit(String sessionId, String query, CacheResult result) {
+    private void handleCacheHit(String sessionId, String query, String userId,
+                                 String tenantId, CacheResult result) {
         log.info("[Orchestrator] 缓存命中处理: sessionId={}, matchedQuery='{}'",
             sessionId,
             result.matchedQuery() != null
@@ -228,6 +237,7 @@ public class ResearchOrchestratorService {
 
         // 事件 2: 研究完成（附带缓存的报告）
         int wordCount = result.wordCount() > 0 ? result.wordCount() : countWords(result.report());
+        int citationCount = result.citationCount();
         progressPublisher.publish(sessionId, new ProgressEvent(
             sessionId, ResearchStage.COMPLETED, "done", 100.0,
             String.format("研究完成（来自缓存）: %d 字报告, 匹配查询='%s'",
@@ -236,6 +246,18 @@ public class ResearchOrchestratorService {
                     ? result.matchedQuery().substring(0, Math.min(30, result.matchedQuery().length()))
                     : "null")));
         progressPublisher.complete(sessionId);
+
+        // 持久化到 PG：使前端 GET /api/history/{sessionId} 可获取完整报告
+        // 注意：不调用 indexResearchToSemanticMemory，原报告已有 Milvus 索引
+        try {
+            memoryManager.recordResearchHistory(
+                sessionId, userId, tenantId, query, result.report(), wordCount,
+                citationCount, 0, "COMPLETED",
+                result.sourceIndex(), result.findings());
+            log.info("[Orchestrator] 缓存命中 PG 持久化完成: sessionId={}", sessionId);
+        } catch (Exception e) {
+            log.warn("[Orchestrator] 缓存命中 PG 持久化失败（不影响 SSE 响应）: {}", e.getMessage());
+        }
 
         // 将缓存的报告写入短期记忆（供后续对话上下文，fire-and-forget）
         String summary = result.report().length() > 500
