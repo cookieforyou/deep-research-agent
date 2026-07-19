@@ -104,7 +104,7 @@ const DIRECT_NODES: TimelineNodeDef[] = [
   },
 ];
 
-/** 研究流程的特征 stage（有任意一个即为研究流程） */
+/** 研究流程的特征 stage（有任意一个即判定为研究流程） */
 const RESEARCH_SIGNATURE: ResearchStage[] = [
   'WEB_SEARCHING', 'LOCAL_SEARCHING', 'JUDGING', 'ANALYZING', 'WRITING',
 ];
@@ -123,13 +123,19 @@ function parseSearchProgress(message: string): { current: number; total: number 
   return null;
 }
 
-/** 根据事件判断是研究流程还是直接回答流程 */
+/**
+ * 根据事件判断流程类型。
+ * 保守策略：COMPLETED 到达前不下结论，避免「直接回答→任务规划」的闪烁。
+ */
 function detectFlowType(
   eventStages: Set<ResearchStage>,
-): 'research' | 'direct' {
+  isCompleted: boolean,
+): 'research' | 'direct' | 'pending' {
   for (const sig of RESEARCH_SIGNATURE) {
     if (eventStages.has(sig)) return 'research';
   }
+  // 只有在 COMPLETED 到达后才敢说是 direct，之前都是 pending
+  if (!isCompleted) return 'pending';
   return 'direct';
 }
 
@@ -187,12 +193,13 @@ export function WorkflowTimeline({ events }: WorkflowTimelineProps) {
       stageEvents.set(e.stage, arr);
     }
 
-    // 2. 判断流程类型，选择节点定义
-    const flowType = detectFlowType(eventStageSet);
-    const nodeDefs = flowType === 'research' ? RESEARCH_NODES : DIRECT_NODES;
-
+    // 2. 状态标志
     const isCompleted = events.some((e) => e.stage === 'COMPLETED');
     const isError = events.some((e) => e.stage === 'ERROR');
+
+    // 3. 判断流程类型，选择节点定义
+    const flowType = detectFlowType(eventStageSet, isCompleted);
+    const nodeDefs = flowType === 'research' ? RESEARCH_NODES : DIRECT_NODES;
 
     // 3. 找当前活跃阶段
     const allStages = new Set(nodeDefs.flatMap((d) => d.stages));
@@ -287,8 +294,13 @@ export function WorkflowTimeline({ events }: WorkflowTimelineProps) {
         });
       }
 
+      // pending 状态下 PLANNING 节点显示 "分析中"（不确定是研究还是直接回答）
+      const showLabel = flowType === 'pending' && def.stages.includes('PLANNING')
+        ? '分析中'
+        : def.label;
+
       nodes.push({
-        label: def.label,
+        label: showLabel,
         icon: <def.Icon className="h-4 w-4" />,
         status,
         message,
