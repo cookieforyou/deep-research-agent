@@ -15,6 +15,11 @@ const PATH_LABELS: Record<string, string> = {
   users: '用户管理',
 };
 
+/** 路径段 → 链接覆盖（默认链接为 /{segments[0..i]}） */
+const PATH_LINK_OVERRIDES: Record<string, string> = {
+  research: '/history',
+};
+
 interface BreadcrumbProps {
   className?: string;
 }
@@ -39,7 +44,8 @@ export function Breadcrumb({ className }: BreadcrumbProps) {
       {segments.map((seg, i) => {
         const isLast = i === segments.length - 1;
         const label = PATH_LABELS[seg] || seg;
-        const href = '/' + segments.slice(0, i + 1).join('/');
+        const defaultHref = '/' + segments.slice(0, i + 1).join('/');
+        const href = PATH_LINK_OVERRIDES[seg] ?? defaultHref;
 
         return (
           <Fragment key={i}>
