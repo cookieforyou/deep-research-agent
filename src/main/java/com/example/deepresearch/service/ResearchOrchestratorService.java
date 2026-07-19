@@ -254,6 +254,10 @@ public class ResearchOrchestratorService {
                 sessionId, userId, tenantId, query, result.report(), wordCount,
                 citationCount, 0, "COMPLETED",
                 result.sourceIndex(), result.findings());
+            // 携带原会话的评估分数（若存在），供前端雷达图渲染
+            if (result.evalScores() != null && !result.evalScores().isBlank()) {
+                memoryManager.updateEvalScores(sessionId, result.evalScores());
+            }
             log.info("[Orchestrator] 缓存命中 PG 持久化完成: sessionId={}", sessionId);
         } catch (Exception e) {
             log.warn("[Orchestrator] 缓存命中 PG 持久化失败（不影响 SSE 响应）: {}", e.getMessage());
