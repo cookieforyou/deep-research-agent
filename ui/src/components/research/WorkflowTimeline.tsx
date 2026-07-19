@@ -247,7 +247,13 @@ export function WorkflowTimeline({ events }: WorkflowTimelineProps) {
       if (status === 'active' && nodeEvents.length > 0) {
         message = nodeEvents[nodeEvents.length - 1].message;
       } else if (status === 'done' && nodeEvents.length > 0) {
-        message = nodeEvents[nodeEvents.length - 1].message;
+        // 完成节点：显示最后一个 100% 事件的完成消息
+        const doneEvent = [...nodeEvents].reverse().find(e => e.percent >= 100);
+        message = doneEvent?.message || nodeEvents[nodeEvents.length - 1].message;
+        // 将 "正在检索..." 替换为 "已完成检索"
+        if (def.stages.some(s => s === 'WEB_SEARCHING' || s === 'LOCAL_SEARCHING')) {
+          message = (message || '').replace(/正在检索.*$/, '检索完成');
+        }
       } else if (status === 'pending') {
         message = '等待中...';
       } else if (status === 'error') {
@@ -259,9 +265,7 @@ export function WorkflowTimeline({ events }: WorkflowTimelineProps) {
       if (def.children) {
         children = def.children.map((child) => {
           const childEvents = stageEvents.get(child.stage) || [];
-          const childDone = allDone || (activeStage && def.stages.includes(activeStage))
-            ? false
-            : (nodeEvents.length > 0 && status !== 'active');
+          const childDone = childEvents.length > 0 && (status === 'done' || isCompleted);
 
           let current = 0, total = 0;
           if (childEvents.length > 0) {
@@ -277,7 +281,7 @@ export function WorkflowTimeline({ events }: WorkflowTimelineProps) {
               label={child.label}
               current={current}
               total={total}
-              isDone={childEvents.length > 0 && status === 'done'}
+              isDone={childDone}
             />
           );
         });

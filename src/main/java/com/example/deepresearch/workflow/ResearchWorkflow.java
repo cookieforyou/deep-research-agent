@@ -501,10 +501,9 @@ public class ResearchWorkflow {
 
                     progressPublisher.publish(sessionId,
                         ProgressEvent.completed(sessionId, ResearchStage.ANALYZING,
-                            "analyze", String.format("分析完成: %d 个结论, 完备性=%.0f%%, 需补搜=%s",
+                            "analyze", String.format("分析完成: %d 个结论, 完备性=%.0f%%",
                                 result.findings().size(),
-                                result.completenessScore() * 100,
-                                result.needsMoreResearch())));
+                                result.completenessScore() * 100)));
 
                     // 使用 HashMap 而非 Map.of()，因为 Map.of() 不接受 null 值
                     // 当 LLM JSON 解析部分失败时，某些字段可能为 null

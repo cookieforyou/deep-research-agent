@@ -1,5 +1,6 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { researchApi, historyApi } from '@/lib/api';
 import type { ResearchResponse } from '@/lib/types';
@@ -14,40 +15,28 @@ interface ReportData {
 /**
  * 获取完整研究报告。
  *
- * 主动轮询模式：不依赖 SSE 的 COMPLETED 信号。
- * 优先从 history API 获取，404 时回退到 research status API，
- * 报告为空时每 2 秒自动重试，直到获取到报告。
- *
- * SSE COMPLETED 到达时会通过 refetchSignal 立即触发拉取（比轮询更快）。
- *
- * @param sessionId      会话 ID
- * @param enabled        是否启用
- * @param refetchSignal  变化时触发立即重新拉取（SSE COMPLETED 到达时递增）
+ * 主查询：优先 history API（含 sourceIndex/findings），回退 research status API。
+ * 补充查询：报告加载后若 sourceIndex 缺失，延迟 3s 再拉一次 history API。
  */
 export function useReportData(sessionId: string, enabled: boolean, refetchSignal = 0) {
-  return useQuery<ReportData>({
+  const [lazySourceIndex, setLazySourceIndex] = useState<string | undefined>();
+  const [lazyFindings, setLazyFindings] = useState<string | undefined>();
+
+  const mainQuery = useQuery<ReportData>({
     queryKey: ['report', sessionId, refetchSignal],
     queryFn: async () => {
-      // 优先：history detail API（PG 持久化，含 report + sourceIndex + findings）
       try {
         const detail = await historyApi.getDetail(sessionId);
         if (detail?.report) {
           return {
             report: detail.report,
-            metadata: {
-              wordCount: detail.wordCount,
-              citationCount: detail.citationCount,
-              iterationCount: detail.iterationCount,
-            },
+            metadata: { wordCount: detail.wordCount, citationCount: detail.citationCount, iterationCount: detail.iterationCount },
             sourceIndex: detail.sourceIndex,
             findings: detail.findings,
           };
         }
-      } catch {
-        // history API 404 / 无报告 → 回退
-      }
+      } catch { /* 回退 */ }
 
-      // 回退：research status API（内存中刚完成或进行中的会话）
       const status = await researchApi.getStatus(sessionId);
       return {
         report: status.report || '',
@@ -57,20 +46,40 @@ export function useReportData(sessionId: string, enabled: boolean, refetchSignal
       };
     },
     enabled: !!sessionId && enabled,
-    // 报告为空时每 2 秒轮询，获取到后停止
-    refetchInterval: (query) => {
-      if (query.state.data?.report) return false;
-      return 2000;
-    },
     staleTime: 0,
     refetchOnWindowFocus: false,
-    retry: 1,
+    retry: 2,
+    retryDelay: (attemptIndex) => (attemptIndex + 1) * 3000,
   });
+
+  const report = mainQuery.data?.report || '';
+
+  // 报告已加载但没有 sourceIndex → 延迟从 history API 补拉
+  useEffect(() => {
+    if (!report || mainQuery.data?.sourceIndex) return;
+
+    const timer = setTimeout(async () => {
+      try {
+        const detail = await historyApi.getDetail(sessionId);
+        if (detail?.sourceIndex) setLazySourceIndex(detail.sourceIndex);
+        if (detail?.findings) setLazyFindings(detail.findings);
+      } catch { /* 忽略 */ }
+    }, 3000);
+
+    return () => clearTimeout(timer);
+  }, [report, mainQuery.data?.sourceIndex, sessionId]);
+
+  return {
+    data: mainQuery.data ? {
+      ...mainQuery.data,
+      sourceIndex: mainQuery.data.sourceIndex || lazySourceIndex,
+      findings: mainQuery.data.findings || lazyFindings,
+    } : undefined,
+    isLoading: mainQuery.isLoading,
+    isError: mainQuery.isError,
+  };
 }
 
-/**
- * 从报告文本中提取所有 Markdown 标题（用于大纲导航）
- */
 export interface HeadingItem {
   id: string;
   text: string;
@@ -90,7 +99,6 @@ export function extractHeadings(markdown: string): HeadingItem[] {
       .replace(/[^\w一-鿿]+/g, '-')
       .replace(/^-+|-+$/g, '')
       .slice(0, 60);
-
     headings.push({ id, text, level });
   }
 

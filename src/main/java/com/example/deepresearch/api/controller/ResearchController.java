@@ -148,11 +148,21 @@ public class ResearchController {
                     report = state.directAnswer();
                 }
                 if (report != null && !report.isEmpty()) {
+                    int wordCount = countWords(report);
+                    int citationCount = state.evidencePool() != null ? state.evidencePool().size() : 0;
                     return ResponseEntity.ok(ResearchResponse.completed(
-                        sessionId, report, 0, 0, state.iteration()));
+                        sessionId, report, wordCount, citationCount, state.iteration()));
                 }
                 return ResponseEntity.ok(ResearchResponse.inProgress(sessionId));
             })
             .orElse(ResponseEntity.notFound().build());
+    }
+
+    private static int countWords(String text) {
+        if (text == null || text.isEmpty()) return 0;
+        long chineseChars = text.codePoints()
+            .filter(cp -> Character.UnicodeScript.of(cp) == Character.UnicodeScript.HAN)
+            .count();
+        return (int) chineseChars + text.split("\\s+").length;
     }
 }
