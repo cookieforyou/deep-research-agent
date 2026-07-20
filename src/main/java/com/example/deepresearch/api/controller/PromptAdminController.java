@@ -87,9 +87,8 @@ public class PromptAdminController {
             if (request.status() != null) {
                 entity.setStatus(request.status());
             }
-            if (request.abGroup() != null) {
-                entity.setAbGroup(request.abGroup());
-            }
+            // abGroup 直接设置（含 null），支持清除分组
+            entity.setAbGroup(request.abGroup());
 
             entity.setUpdatedAt(LocalDateTime.now());
 

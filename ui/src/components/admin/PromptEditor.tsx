@@ -52,15 +52,19 @@ export function PromptEditor({ template, open, onOpenChange }: PromptEditorProps
   const updateMutation = useUpdatePrompt();
   const resetMutation = useResetPrompt();
 
-  // 重置表单
+  // 打开弹窗时 snapshot 数据库原始内容；关闭时清除
   useEffect(() => {
-    if (template) {
+    if (open && template) {
       setContent(template.content);
       setOriginalContent(template.content);
       setStatus(template.status);
       setAbGroup(template.abGroup || 'none');
+      setShowDiff(false);
     }
-  }, [template]);
+    if (!open) {
+      setOriginalContent('');
+    }
+  }, [open, template]);
 
   const handleSave = () => {
     if (!template) return;
@@ -82,7 +86,12 @@ export function PromptEditor({ template, open, onOpenChange }: PromptEditorProps
   const handleReset = () => {
     if (!template) return;
     if (confirm(`确定要将 "${template.id}" 重置为 classpath 默认值吗？当前修改将丢失。`)) {
-      resetMutation.mutate(template.id);
+      resetMutation.mutate(template.id, {
+        onSuccess: (data) => {
+          setContent(data.content);
+          setOriginalContent(data.content);
+        },
+      });
     }
   };
 
@@ -118,7 +127,7 @@ export function PromptEditor({ template, open, onOpenChange }: PromptEditorProps
             <Textarea
               value={content}
               onChange={(e) => setContent(e.target.value)}
-              className="min-h-[300px] font-mono text-xs leading-relaxed"
+              className="min-h-75 font-mono text-xs leading-relaxed"
               placeholder="输入 Prompt 模板内容..."
             />
             <p className="text-[10px] text-muted-foreground">
@@ -171,19 +180,13 @@ export function PromptEditor({ template, open, onOpenChange }: PromptEditorProps
             )}
             重置默认
           </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setShowDiff(true)}
-            disabled={!template || template.version <= 1}
-            title={template && template.version <= 1 ? '首次创建，无历史版本' : '对比修改差异'}
-          >
-            <GitCompare className="h-4 w-4 mr-1" />
-            对比
-          </Button>
           <div className="flex-1" />
           <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
             取消
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => setShowDiff(true)}>
+            <GitCompare className="h-4 w-4 mr-1" />
+            查看修改差异
           </Button>
           <Button size="sm" onClick={handleSave} disabled={isSaving}>
             {isSaving ? (
@@ -197,8 +200,8 @@ export function PromptEditor({ template, open, onOpenChange }: PromptEditorProps
       </DialogContent>
 
       <PromptDiffModal
-        current={template}
-        previousContent={originalContent !== template?.content ? originalContent : undefined}
+        previousContent={originalContent}
+        currentContent={content}
         open={showDiff}
         onOpenChange={setShowDiff}
       />

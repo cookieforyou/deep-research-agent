@@ -10,13 +10,12 @@ import {
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { History, ArrowRight } from 'lucide-react';
-import type { PromptTemplate } from '@/lib/types';
 
 interface PromptDiffModalProps {
-  /** 当前模板 */
-  current: PromptTemplate | null;
-  /** 上一版本内容（从 classpath 或其他来源） */
+  /** 打开编辑器时的原始内容（数据库已保存版本） */
   previousContent?: string;
+  /** 当前实时编辑中的内容 */
+  currentContent?: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
@@ -26,13 +25,14 @@ interface PromptDiffModalProps {
  *
  * 显示当前版本与参考版本的差异（简易逐行对比）。
  */
-export function PromptDiffModal({ current, previousContent, open, onOpenChange }: PromptDiffModalProps) {
+export function PromptDiffModal({ previousContent, currentContent, open, onOpenChange }: PromptDiffModalProps) {
   const [diffs, setDiffs] = useState<{ type: 'add' | 'remove' | 'same'; line: string }[]>([]);
 
   useEffect(() => {
-    if (!current || !previousContent) return;
+    if (!previousContent || !currentContent) return;
+    if (previousContent === currentContent) return;
 
-    const currentLines = current.content.split('\n');
+    const currentLines = currentContent.split('\n');
     const prevLines = previousContent.split('\n');
     const result: { type: 'add' | 'remove' | 'same'; line: string }[] = [];
 
@@ -49,9 +49,7 @@ export function PromptDiffModal({ current, previousContent, open, onOpenChange }
     }
 
     setDiffs(result);
-  }, [current, previousContent]);
-
-  if (!current) return null;
+  }, [previousContent, currentContent]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -59,10 +57,10 @@ export function PromptDiffModal({ current, previousContent, open, onOpenChange }
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <History className="h-4 w-4" />
-            版本对比
-            <Badge variant="secondary" className="text-xs">v{current.version - 1}</Badge>
+            修改对比
+            <Badge variant="secondary" className="text-xs">已保存版本</Badge>
             <ArrowRight className="h-3 w-3 text-muted-foreground" />
-            <Badge variant="default" className="text-xs">v{current.version}（当前）</Badge>
+            <Badge variant="default" className="text-xs">当前修改</Badge>
           </DialogTitle>
         </DialogHeader>
 
@@ -89,7 +87,7 @@ export function PromptDiffModal({ current, previousContent, open, onOpenChange }
             </div>
           ) : (
             <div className="flex items-center justify-center h-32 text-muted-foreground">
-              {previousContent ? '内容相同，无差异' : '暂无历史版本可对比'}
+              内容相同，无差异
             </div>
           )}
         </div>
