@@ -19,7 +19,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Loader2, TestTube, Save, Info } from 'lucide-react';
-import { usePromptList, useUpdatePrompt } from '@/hooks/usePromptManagement';
+import { usePromptList, useBatchUpdateAbGroup } from '@/hooks/usePromptManagement';
 import { PROMPT_TEMPLATE_NAMES } from '@/lib/constants';
 import type { PromptTemplate } from '@/lib/types';
 
@@ -36,7 +36,7 @@ interface AbTestConfigProps {
  */
 export function AbTestConfig({ open, onOpenChange }: AbTestConfigProps) {
   const { data: prompts } = usePromptList();
-  const updateMutation = useUpdatePrompt();
+  const batchMutation = useBatchUpdateAbGroup();
 
   // 本地编辑状态：{ [promptId]: 'none' | 'A' | 'B' }
   const [groups, setGroups] = useState<Record<string, string>>({});
@@ -70,16 +70,13 @@ export function AbTestConfig({ open, onOpenChange }: AbTestConfigProps) {
 
   const handleSaveAll = () => {
     if (!prompts) return;
-    // 批量保存所有变更
-    for (const change of changes) {
-      updateMutation.mutate({
-        id: change.id,
-        data: {
-          abGroup: groups[change.id] === 'none' ? null : groups[change.id],
-        },
-      });
-    }
-    onOpenChange(false);
+    const items = changes.map((c: PromptTemplate) => ({
+      id: c.id,
+      abGroup: groups[c.id] === 'none' ? null : (groups[c.id] as 'A' | 'B' | null),
+    }));
+    batchMutation.mutate(items, {
+      onSuccess: () => onOpenChange(false),
+    });
   };
 
   const handleClearAll = () => {
@@ -197,9 +194,9 @@ export function AbTestConfig({ open, onOpenChange }: AbTestConfigProps) {
           <Button
             size="sm"
             onClick={handleSaveAll}
-            disabled={!hasChanges || updateMutation.isPending}
+            disabled={!hasChanges || batchMutation.isPending}
           >
-            {updateMutation.isPending ? (
+            {batchMutation.isPending ? (
               <Loader2 className="h-4 w-4 mr-1 animate-spin" />
             ) : (
               <Save className="h-4 w-4 mr-1" />

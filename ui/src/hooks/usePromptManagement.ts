@@ -53,3 +53,19 @@ export function useResetPrompt() {
     },
   });
 }
+
+export function useBatchUpdateAbGroup() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (items: { id: string; abGroup: string | null }[]) =>
+      adminApi.batchUpdateAbGroup(items),
+    onSuccess: (data) => {
+      toast.success(`已更新 ${data.length} 个模板的 A/B 分组`);
+      queryClient.invalidateQueries({ queryKey: ['admin', 'prompts'] });
+    },
+    onError: (error: Error) => {
+      toast.error(`批量更新失败: ${error.message}`);
+    },
+  });
+}

@@ -1,5 +1,6 @@
 package com.example.deepresearch.api.controller;
 
+import com.example.deepresearch.api.dto.BatchUpdateAbGroupRequest;
 import com.example.deepresearch.api.dto.UpdatePromptRequest;
 import com.example.deepresearch.memory.entity.PromptTemplateEntity;
 import com.example.deepresearch.memory.repository.PromptTemplateRepository;
@@ -14,6 +15,7 @@ import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Mono;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -151,5 +153,43 @@ public class PromptAdminController {
         log.info("[Admin] 强制刷新缓存: id={}", id);
         promptService.invalidateCache(id);
         return Mono.just(ResponseEntity.ok().build());
+    }
+
+    /**
+     * POST /api/admin/prompts/batch-ab-group
+     * 批量更新多个 Prompt 模板的 A/B 分组（只改 abGroup，不改 content/status）。
+     */
+    @PostMapping("/batch-ab-group")
+    public Mono<ResponseEntity<List<PromptTemplateEntity>>> batchUpdateAbGroup(
+        @Valid @RequestBody BatchUpdateAbGroupRequest request
+    ) {
+        log.info("[Admin] 批量更新 AB 分组: {} 个模板", request.items().size());
+
+        try {
+            List<PromptTemplateEntity> updated = new ArrayList<>();
+
+            for (var item : request.items()) {
+                Optional<PromptTemplateEntity> existing = repository.findById(item.id());
+                if (existing.isEmpty()) {
+                    log.warn("[Admin] 批量 AB 分组跳过不存在的模板: id={}", item.id());
+                    continue;
+                }
+
+                PromptTemplateEntity entity = existing.get();
+                entity.setAbGroup(item.abGroup()); // 直接设置（含 null）
+                entity.setUpdatedAt(LocalDateTime.now());
+
+                PromptTemplateEntity saved = repository.save(entity);
+                promptService.invalidateCache(item.id());
+                updated.add(saved);
+            }
+
+            log.info("[Admin] 批量 AB 分组完成: {} 个模板已更新", updated.size());
+            return Mono.just(ResponseEntity.ok(updated));
+
+        } catch (Exception e) {
+            log.error("[Admin] 批量 AB 分组失败: error={}", e.getMessage(), e);
+            return Mono.just(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build());
+        }
     }
 }

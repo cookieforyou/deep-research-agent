@@ -133,6 +133,14 @@ export const adminApi = {
       method: 'POST',
     });
   },
+
+  /** POST /api/admin/prompts/batch-ab-group — 批量更新 A/B 分组 */
+  batchUpdateAbGroup(items: { id: string; abGroup: string | null }[]) {
+    return request<PromptTemplate[]>('/admin/prompts/batch-ab-group', {
+      method: 'POST',
+      body: JSON.stringify({ items }),
+    });
+  },
 };
 
 // =========================== 用户 API ===========================
