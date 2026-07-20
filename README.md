@@ -4,8 +4,10 @@
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-4.1.0-brightgreen)](https://spring.io/projects/spring-boot)
 [![Spring AI](https://img.shields.io/badge/Spring%20AI-2.0.0-blue)](https://spring.io/projects/spring-ai)
 [![LangGraph4j](https://img.shields.io/badge/LangGraph4j-1.8.20-purple)](https://github.com/langgraph4j/langgraph4j)
+[![Next.js](https://img.shields.io/badge/Next.js-15-black)](https://nextjs.org/)
+[![React](https://img.shields.io/badge/React-19-61DAFB)](https://react.dev/)
 
-基于 **Spring AI 2.0 + DeepSeek V4 + LangGraph4j** 的企业级 AI 多智能体深度研究系统。
+基于 **Spring AI 2.0 + DeepSeek V4 + LangGraph4j** 的企业级 AI 多智能体深度研究系统。前端采用 **Next.js 15 + React 19 + TanStack Query + shadcn/ui**。
 
 全面对齐 Spring AI 2.0 企业级最佳实践（`@Tool` 工具调用、`.entity()` 结构化输出、Advisor 链治理、DynamicPrompt 热更新、Spring AI 内置指标可观测性）。
 
@@ -47,6 +49,32 @@
 │        可观测性 (Prometheus / Grafana / Jaeger)          │
 └──────────────────────────────────────────────────────────┘
 ```
+
+### 前端架构
+
+```
+ui/src/
+├── app/                          # Next.js 15 App Router
+│   ├── (admin)/admin/            # 管理后台（管理员）
+│   │   ├── prompts/page.tsx      # Prompt 模板管理
+│   │   └── users/page.tsx        # 用户管理仪表盘
+│   ├── (research)/               # 研究页面
+│   │   ├── history/page.tsx      # 研究历史列表
+│   │   └── research/[id]/page.tsx # 研究结果详情
+│   ├── login/page.tsx            # Casdoor OAuth2 登录
+│   └── page.tsx                  # 首页（研究输入）
+├── components/
+│   ├── admin/                    # 管理组件（PromptTable/Editor/Diff, UserTable, AbTestConfig）
+│   ├── history/                  # 历史组件（HistoryList/Filters/Card/Search）
+│   ├── layout/                   # 布局组件（Navbar/Sidebar/AuthGuard）
+│   ├── research/                 # 研究组件（ReportViewer/WorkflowTimeline/EvalChart/EvidenceDrawer）
+│   └── ui/                       # shadcn/ui 基础组件
+├── hooks/                        # TanStack Query hooks (9 个)
+├── stores/                       # Zustand 状态管理 (auth/sse/ui)
+└── lib/                          # API 客户端、类型、常量、JWT 管理、SSE 客户端
+```
+
+**技术栈**: Next.js 15 · React 19 · TypeScript 5 · Tailwind CSS 4 · shadcn/ui · TanStack Query 5 · Zustand 5 · Recharts · react-markdown · SSE 实时推送
 
 ## 核心特性
 
@@ -251,16 +279,53 @@ deep-research:
 
 ## API 文档
 
-### 端点一览
+### 研究 API
+
+| 方法 | 路径 | 权限 | 说明 |
+|:---|:---|:---|:---|
+| POST | `/api/research` | JWT | 发起深度研究 |
+| GET | `/api/research/{id}/stream` | Query Token | SSE 实时进度流 |
+| GET | `/api/research/{id}` | JWT | 查询研究状态/结果 |
+
+### 历史 API
+
+| 方法 | 路径 | 权限 | 说明 |
+|:---|:---|:---|:---|
+| GET | `/api/history` | JWT | 分页查询研究历史（支持筛选/排序/日期范围） |
+| GET | `/api/history/{id}` | JWT | 研究历史详情（含报告/证据/发现） |
+| DELETE | `/api/history/{id}` | JWT | 删除历史记录 |
+
+### 用户 API
+
+| 方法 | 路径 | 权限 | 说明 |
+|:---|:---|:---|:---|
+| GET | `/api/user/profile` | JWT | 获取当前用户画像 |
+
+### 管理员 API
+
+| 方法 | 路径 | 权限 | 说明 |
+|:---|:---|:---|:---|
+| GET | `/api/admin/prompts` | ADMIN | Prompt 模板列表 |
+| GET | `/api/admin/prompts/{id}` | ADMIN | 模板详情 |
+| PUT | `/api/admin/prompts/{id}` | ADMIN | 更新模板（内容/状态/AB分组） |
+| POST | `/api/admin/prompts/{id}/reset` | ADMIN | 重置模板为 classpath 默认值 |
+| POST | `/api/admin/prompts/batch-ab-group` | ADMIN | 批量更新 A/B 分组 |
+| GET | `/api/admin/users` | ADMIN | 分页查询用户画像列表（支持搜索） |
+
+### 可观测性
 
 | 方法 | 路径 | 说明 |
 |:---|:---|:---|
-| POST | `/api/research` | 发起研究 |
-| GET | `/api/research/{id}/stream` | SSE 进度流 |
-| GET | `/api/research/{id}` | 查询状态 |
 | GET | `/actuator/health` | 健康检查 |
 | GET | `/actuator/prometheus` | Prometheus 指标端点 |
 | GET | `/actuator/metrics` | 指标列表 |
+
+## 管理后台
+
+管理员登录后可通过顶部导航栏访问管理功能：
+
+- **Prompt 模板管理** (`/admin/prompts`) — 查看/编辑/对比 9 个 Prompt 模板，支持实时热更新（1 分钟 TTL 自动生效）、A/B 分组批量配置、模板重置
+- **用户管理** (`/admin/users`) — 只读仪表盘，查看所有用户的研究统计（研究次数、兴趣标签、偏好、最近活跃时间），支持搜索
 
 ## 项目文档
 
