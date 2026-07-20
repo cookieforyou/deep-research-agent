@@ -11,6 +11,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+import reactor.core.publisher.Mono;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -43,10 +44,10 @@ public class PromptAdminController {
      * 获取全部 Prompt 模板列表。
      */
     @GetMapping
-    public ResponseEntity<List<PromptTemplateEntity>> listAll() {
+    public Mono<ResponseEntity<List<PromptTemplateEntity>>> listAll() {
         log.info("[Admin] 获取全部 Prompt 模板");
         List<PromptTemplateEntity> templates = repository.findAll();
-        return ResponseEntity.ok(templates);
+        return Mono.just(ResponseEntity.ok(templates));
     }
 
     /**
@@ -54,10 +55,10 @@ public class PromptAdminController {
      * 获取单个模板详情。
      */
     @GetMapping("/{id}")
-    public ResponseEntity<PromptTemplateEntity> getById(@PathVariable String id) {
+    public Mono<ResponseEntity<PromptTemplateEntity>> getById(@PathVariable String id) {
         log.info("[Admin] 获取模板: id={}", id);
         Optional<PromptTemplateEntity> entity = repository.findById(id);
-        return entity.map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.notFound().build());
+        return Mono.just(entity.map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.notFound().build()));
     }
 
     /**
@@ -66,7 +67,7 @@ public class PromptAdminController {
      * 字段全部可选，只更新传入的字段。
      */
     @PutMapping("/{id}")
-    public ResponseEntity<PromptTemplateEntity> update(
+    public Mono<ResponseEntity<PromptTemplateEntity>> update(
         @PathVariable String id,
         @Valid @RequestBody UpdatePromptRequest request
     ) {
@@ -75,7 +76,7 @@ public class PromptAdminController {
         try {
             Optional<PromptTemplateEntity> existing = repository.findById(id);
             if (existing.isEmpty()) {
-                return ResponseEntity.notFound().build();
+                return Mono.just(ResponseEntity.notFound().build());
             }
 
             PromptTemplateEntity entity = existing.get();
@@ -98,11 +99,11 @@ public class PromptAdminController {
             promptService.invalidateCache(id);
 
             log.info("[Admin] 模板已更新: id={}, version={}", saved.getId(), saved.getVersion());
-            return ResponseEntity.ok(saved);
+            return Mono.just(ResponseEntity.ok(saved));
 
         } catch (Exception e) {
             log.error("[Admin] 更新模板失败: id={}, error={}", id, e.getMessage(), e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+            return Mono.just(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build());
         }
     }
 
@@ -111,19 +112,19 @@ public class PromptAdminController {
      * 重置模板内容为 classpath 默认值。
      */
     @PostMapping("/{id}/reset")
-    public ResponseEntity<PromptTemplateEntity> reset(@PathVariable String id) {
+    public Mono<ResponseEntity<PromptTemplateEntity>> reset(@PathVariable String id) {
         log.info("[Admin] 重置模板: id={}", id);
 
         try {
             Optional<PromptTemplateEntity> existing = repository.findById(id);
             if (existing.isEmpty()) {
-                return ResponseEntity.notFound().build();
+                return Mono.just(ResponseEntity.notFound().build());
             }
 
             // 从 classpath 重新加载默认内容
             String defaultContent = promptService.loadFromClasspath(id);
             if (defaultContent.isEmpty()) {
-                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+                return Mono.just(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build());
             }
 
             PromptTemplateEntity entity = existing.get();
@@ -134,11 +135,11 @@ public class PromptAdminController {
             promptService.invalidateCache(id);
 
             log.info("[Admin] 模板已重置: id={}, version={}", saved.getId(), saved.getVersion());
-            return ResponseEntity.ok(saved);
+            return Mono.just(ResponseEntity.ok(saved));
 
         } catch (Exception e) {
             log.error("[Admin] 重置模板失败: id={}, error={}", id, e.getMessage(), e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+            return Mono.just(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build());
         }
     }
 
@@ -147,9 +148,9 @@ public class PromptAdminController {
      * 强制刷新本地缓存（不修改数据库）。
      */
     @PostMapping("/{id}/cache/invalidate")
-    public ResponseEntity<Void> invalidateCache(@PathVariable String id) {
+    public Mono<ResponseEntity<Void>> invalidateCache(@PathVariable String id) {
         log.info("[Admin] 强制刷新缓存: id={}", id);
         promptService.invalidateCache(id);
-        return ResponseEntity.ok().build();
+        return Mono.just(ResponseEntity.ok().build());
     }
 }

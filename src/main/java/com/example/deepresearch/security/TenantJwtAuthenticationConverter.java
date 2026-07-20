@@ -1,5 +1,6 @@
 package com.example.deepresearch.security;
 
+import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.convert.converter.Converter;
@@ -40,7 +41,7 @@ public class TenantJwtAuthenticationConverter
         TenantJwtAuthenticationConverter.class);
 
     @Override
-    public Mono<AbstractAuthenticationToken> convert(Jwt jwt) {
+    public Mono<AbstractAuthenticationToken> convert(@NonNull Jwt jwt) {
         // 从 JWT claims 提取身份信息
         String userId = resolveUserId(jwt);
         String tenantId = resolveTenantId(jwt);
@@ -91,7 +92,12 @@ public class TenantJwtAuthenticationConverter
     }
 
     /**
-     * 从 JWT 提取权限（scope 或 authorities claim）.
+     * 从 JWT 提取权限（scope、authorities、isAdmin claim）.
+     * <p>
+     * Casdoor JWT 通过 {@code isAdmin} 布尔字段标识管理员，无 {@code authorities} claim。
+     * 为兼容 Spring Security {@code @PreAuthorize("hasRole('ADMIN')")}，
+     * 将其映射为 {@code ROLE_ADMIN}。
+     * </p>
      */
     private List<GrantedAuthority> extractAuthorities(Jwt jwt) {
         List<GrantedAuthority> authorities = new ArrayList<>();
@@ -108,6 +114,12 @@ public class TenantJwtAuthenticationConverter
         if (roles != null) {
             roles.forEach(role ->
                 authorities.add(new SimpleGrantedAuthority(role)));
+        }
+
+        // Casdoor isAdmin → ROLE_ADMIN 映射
+        Object isAdmin = jwt.getClaim("isAdmin");
+        if (isAdmin instanceof Boolean b && b) {
+            authorities.add(new SimpleGrantedAuthority("ROLE_ADMIN"));
         }
 
         return authorities;
