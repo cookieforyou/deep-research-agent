@@ -200,6 +200,18 @@ export interface UserProfile {
   updatedAt: string;
 }
 
+/** 用户摘要（管理员用户列表，JSON 字段已解析） */
+export interface UserSummary {
+  userId: string;
+  tenantId: string;
+  researchCount: number;
+  interests: string[];
+  preferences: Record<string, string>;
+  recentTopics: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
 // =========================== Prompt 模板管理 ===========================
 // 后端: PromptTemplateEntity JPA Entity（Phase 6 新增 API）
 

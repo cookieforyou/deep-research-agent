@@ -7,6 +7,7 @@ import type {
   PaginatedResponse,
   PromptTemplate,
   UserProfile,
+  UserSummary,
   ProblemDetail,
 } from './types';
 import { ApiError } from './types';
@@ -140,6 +141,16 @@ export const adminApi = {
       method: 'POST',
       body: JSON.stringify({ items }),
     });
+  },
+
+  /** GET /api/admin/users — 分页查询用户列表（管理员） */
+  listUsers(params?: { page?: number; size?: number; search?: string }) {
+    const sp = new URLSearchParams();
+    if (params?.page !== undefined) sp.set('page', String(params.page));
+    if (params?.size !== undefined) sp.set('size', String(params.size));
+    if (params?.search) sp.set('search', params.search);
+    const qs = sp.toString();
+    return request<PaginatedResponse<UserSummary>>(`/admin/users${qs ? `?${qs}` : ''}`);
   },
 };
 

@@ -277,7 +277,7 @@ resilience4j:
         max-attempts: 3
         wait-duration: 500ms
         exponential-backoff-multiplier: 2
-        # 注意: Resilience4j Retry 不支持 max-wait-duration 属性；
+        # 注意: Resilience4j Retry 不支持 max-wait-duration 属性
         # 如需限制最大等待时间，改用自定义 IntervalBiFunction（Java 代码配置）
         retry-exceptions:
           - org.springframework.web.reactive.function.client.WebClientResponseException.TooManyRequests
