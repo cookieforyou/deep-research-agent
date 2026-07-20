@@ -29,8 +29,14 @@ export function PromptDiffModal({ previousContent, currentContent, open, onOpenC
   const [diffs, setDiffs] = useState<{ type: 'add' | 'remove' | 'same'; line: string }[]>([]);
 
   useEffect(() => {
-    if (!previousContent || !currentContent) return;
-    if (previousContent === currentContent) return;
+    if (previousContent == null || currentContent == null) {
+      setDiffs([]);
+      return;
+    }
+    if (previousContent === currentContent) {
+      setDiffs([]);
+      return;
+    }
 
     const currentLines = currentContent.split('\n');
     const prevLines = previousContent.split('\n');

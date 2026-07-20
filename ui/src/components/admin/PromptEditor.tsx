@@ -54,17 +54,14 @@ export function PromptEditor({ template, open, onOpenChange }: PromptEditorProps
 
   // 打开弹窗时 snapshot 数据库原始内容；关闭时清除
   useEffect(() => {
-    if (open && template) {
+    if (template) {
       setContent(template.content);
       setOriginalContent(template.content);
       setStatus(template.status);
       setAbGroup(template.abGroup || 'none');
       setShowDiff(false);
     }
-    if (!open) {
-      setOriginalContent('');
-    }
-  }, [open, template]);
+  }, [template]);
 
   const handleSave = () => {
     if (!template) return;
