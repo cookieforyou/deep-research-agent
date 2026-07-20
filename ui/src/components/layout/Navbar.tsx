@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useTheme } from 'next-themes';
 import { useEffect, useState } from 'react';
-import { Sun, Moon, Menu, History, Settings, LogOut, User } from 'lucide-react';
+import { Sun, Moon, Menu, History, Settings, LogOut, User, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -136,7 +136,15 @@ export function Navbar() {
                   <Link href="/admin/prompts">
                     <DropdownMenuItem>
                       <Settings className="h-4 w-4 mr-2" />
-                      Prompt 管理
+                      Prompt 模板
+                    </DropdownMenuItem>
+                  </Link>
+                )}
+                {isAdmin && (
+                  <Link href="/admin/users">
+                    <DropdownMenuItem>
+                      <Users className="h-4 w-4 mr-2" />
+                      用户管理
                     </DropdownMenuItem>
                   </Link>
                 )}

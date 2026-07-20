@@ -65,6 +65,7 @@ export const PROMPT_TEMPLATE_NAMES: Record<string, string> = {
   'writer': '报告撰写',
   'direct-answer': '直接回答',
   'eval': '质量评估',
+  'preference-extractor': '偏好提取',
 };
 
 // =========================== 示例查询 ===========================

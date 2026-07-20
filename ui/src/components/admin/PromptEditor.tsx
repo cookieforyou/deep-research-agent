@@ -64,14 +64,19 @@ export function PromptEditor({ template, open, onOpenChange }: PromptEditorProps
 
   const handleSave = () => {
     if (!template) return;
-    updateMutation.mutate({
-      id: template.id,
-      data: {
-        content,
-        status,
-        abGroup: abGroup === 'none' ? null : abGroup,
+    updateMutation.mutate(
+      {
+        id: template.id,
+        data: {
+          content,
+          status,
+          abGroup: abGroup === 'none' ? null : abGroup,
+        },
       },
-    });
+      {
+        onSuccess: () => onOpenChange(false),
+      }
+    );
   };
 
   const handleReset = () => {
