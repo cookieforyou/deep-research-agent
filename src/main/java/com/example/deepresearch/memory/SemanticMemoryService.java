@@ -239,14 +239,18 @@ public class SemanticMemoryService {
 
     // =========================== 私有辅助方法 ===========================
 
-    /** 匹配正文引用链接 [[WEB12]](url) 或 [[LOCAL3]](url)，还原为裸标记 [WEB12] */
-    private static final Pattern LINKED_CITATION_PATTERN = Pattern.compile("\\[\\[(WEB\\d+|LOCAL\\d+)]]\\([^)]*\\)");
+    /** 匹配所有引用标记 — [[WEB12]](url) 链接形式 或 [WEB12] 裸标记 */
+    private static final Pattern CITATION_PATTERN = Pattern.compile(
+        "\\[\\[(?:WEB|LOCAL)\\d+]]\\([^)]*\\)" +  // [[WEB12]](url)
+        "|" +
+        "\\[(?:WEB|LOCAL)\\d+]"                     // [WEB12]
+    );
 
     /**
      * 索引前清洗报告文本（仅影响 Milvus 向量化文本，PG 中保留完整报告）.
      * <ol>
      *   <li>剥离「## 参考资料」章节 — 纯链接列表对语义检索零价值</li>
-     *   <li>正文引用链接 {@code [[WEBx]](url)} 还原为 {@code [WEBx]} — 去除 URL 噪音</li>
+     *   <li>移除所有引用标记（链接形式和裸标记）— 引用编号对向量检索无语义贡献</li>
      * </ol>
      */
     static String stripForIndexing(String report) {
@@ -263,8 +267,8 @@ public class SemanticMemoryService {
             }
         }
 
-        // 引用链接还原为纯标记
-        cleaned = LINKED_CITATION_PATTERN.matcher(cleaned).replaceAll("[$1]");
+        // 移除全部引用标记（裸标记和链接形式），保留周围文本的语义完整性
+        cleaned = CITATION_PATTERN.matcher(cleaned).replaceAll("");
 
         return cleaned;
     }
