@@ -97,26 +97,6 @@ export function ResearchInput({
               '开始研究 →'
             )}
           </Button>
-
-          {/* 错误信息 + 重试 */}
-          {startResearch.isError && (
-            <div className="flex items-center justify-between rounded-md bg-destructive/10 px-3 py-2">
-              <p className="text-xs text-destructive">
-                {startResearch.error instanceof Error
-                  ? startResearch.error.message
-                  : '提交失败，请重试'}
-              </p>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-7 text-xs"
-                onClick={() => startResearch.mutate({ query: query.trim(), deepResearch: mode === 'deep' })}
-              >
-                重试
-              </Button>
-            </div>
-          )}
         </form>
       </CardContent>
     </Card>
