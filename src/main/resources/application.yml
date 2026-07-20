@@ -272,17 +272,19 @@ resilience4j:
   retry:
     configs:
       llm-api-retry:
-        # 指数退避: 1s → 2s → 4s → 8s → 最大 30s
-        max-retry-attempts: 2
+        # 指数退避: 1s → 2s → 4s → 8s（初始间隔 × 乘数^重试次数）
+        # Resilience4j 2.x: max-attempts = 初始调用 + 重试次数（3 = 1 + 2 次重试）
+        max-attempts: 3
         wait-duration: 500ms
         exponential-backoff-multiplier: 2
-        max-wait-duration: 30s
+        # 注意: Resilience4j Retry 不支持 max-wait-duration 属性；
+        # 如需限制最大等待时间，改用自定义 IntervalBiFunction（Java 代码配置）
         retry-exceptions:
           - org.springframework.web.reactive.function.client.WebClientResponseException.TooManyRequests
           - org.springframework.web.reactive.function.client.WebClientResponseException.ServiceUnavailable
           - org.springframework.web.reactive.function.client.WebClientResponseException.InternalServerError
       search-retry:
-        max-retry-attempts: 2
+        max-attempts: 3
         wait-duration: 2s
 
   circuitbreaker:
@@ -396,5 +398,6 @@ logging:
     org.bsc.langgraph4j: DEBUG
     # 生产环境请关闭敏感信息
     org.springframework.security: INFO
+    org.hibernate.orm.connections.pooling: WARN
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level [%X{traceId:-}] %logger{36} - %msg%n"
