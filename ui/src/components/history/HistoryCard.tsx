@@ -13,7 +13,7 @@ import dayjs from 'dayjs';
 interface HistoryCardProps {
   item: ResearchHistoryItem;
   onDelete?: (sessionId: string) => void;
-  onReRun?: (sessionId: string) => void;
+  onReRun?: (query: string) => void;
 }
 
 /**
@@ -76,7 +76,7 @@ export function HistoryCard({ item, onDelete, onReRun }: HistoryCardProps) {
                 className="h-7 text-xs"
                 onClick={(e) => {
                   e.preventDefault();
-                  onReRun(item.sessionId);
+                  onReRun(item.query);
                 }}
               >
                 <RotateCw className="h-3 w-3 mr-1" />

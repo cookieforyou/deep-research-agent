@@ -89,8 +89,8 @@ export function HistoryList() {
   );
 
   const handleReRun = useCallback(
-    (sessionId: string) => {
-      router.push(`/research/${sessionId}`);
+    (query: string) => {
+      router.push(`/?q=${encodeURIComponent(query)}`);
     },
     [router],
   );

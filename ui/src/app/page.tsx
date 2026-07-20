@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { ResearchInput } from '@/components/research/ResearchInput';
 import { ExampleQueries } from '@/components/research/ExampleQueries';
 import { RecentHistoryPreview } from '@/components/research/RecentHistoryPreview';
@@ -8,10 +9,21 @@ import { Card, CardHeader, CardTitle, CardDescription } from '@/components/ui/ca
 import { Separator } from '@/components/ui/separator';
 
 export default function Home() {
+  return (
+    <Suspense fallback={null}>
+      <HomeContent />
+    </Suspense>
+  );
+}
+
+function HomeContent() {
+  const searchParams = useSearchParams();
+  const queryParam = searchParams.get('q') || '';
+
   // 用于示例查询点击填入输入框
   // 通过 key prop 触发 ResearchInput 重新挂载，使用新 initialQuery
-  const [selectedQuery, setSelectedQuery] = useState('');
-  const [queryKey, setQueryKey] = useState(0);
+  const [selectedQuery, setSelectedQuery] = useState(queryParam);
+  const [queryKey, setQueryKey] = useState(queryParam ? 1 : 0);
 
   const handleExampleSelect = (query: string) => {
     setSelectedQuery(query);

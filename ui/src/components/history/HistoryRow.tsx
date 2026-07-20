@@ -12,7 +12,7 @@ import dayjs from 'dayjs';
 interface HistoryRowProps {
   item: ResearchHistoryItem;
   onDelete?: (sessionId: string) => void;
-  onReRun?: (sessionId: string) => void;
+  onReRun?: (query: string) => void;
 }
 
 /**
@@ -87,7 +87,7 @@ export function HistoryRow({ item, onDelete, onReRun }: HistoryRowProps) {
             </Button>
           </Link>
           {onReRun && (
-            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => onReRun(item.sessionId)}>
+            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => onReRun(item.query)}>
               <RotateCw className="h-3 w-3" />
             </Button>
           )}
