@@ -180,10 +180,13 @@ public class CitationValidator {
             Evidence e = cited.get(i);
             String title = e.title() != null && !e.title().isBlank()
                 ? e.title() : e.sourceId();
-            String url = e.url() != null && !e.url().isBlank()
-                ? e.url() : "#";
-            sb.append(String.format("%d. [%s](%s) — *%s*\n",
-                i + 1, title, url, e.domain() != null ? e.domain() : ""));
+            String domain = e.domain() != null ? e.domain() : "";
+            if (e.sourceType() == Evidence.SourceType.LOCAL) {
+                sb.append(String.format("%d. %s — *%s*\n", i + 1, title, domain));
+            } else {
+                String url = e.url() != null && !e.url().isBlank() ? e.url() : "#";
+                sb.append(String.format("%d. [%s](%s) — *%s*\n", i + 1, title, url, domain));
+            }
         }
 
         return sb.toString();

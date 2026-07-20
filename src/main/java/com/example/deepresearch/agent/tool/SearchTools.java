@@ -151,19 +151,14 @@ public class SearchTools {
                     title = d.getId();
                 }
 
-                // URL/唯一标识：优先 source_url，兜底 source / docId
-                String url = blankToNull(d.getMetadata().getOrDefault("source_url", "").toString());
-                if (url == null) {
-                    url = blankToNull(d.getMetadata().getOrDefault("source", "").toString());
-                }
-                if (url == null) {
-                    url = d.getId();
-                }
+                // LOCAL 证据无外部 URL，置空交由 CitationValidator 自然跳过链接化，
+                // EvidenceDeduplicationService 以 sourceId 兜底去重
+                String url = "";
 
                 double score = ((Number) d.getMetadata()
                     .getOrDefault("score", 0.0)).doubleValue();
-                // 按 来源+内容前缀 去重注册（同一文档块可能被多个查询命中）
-                String dedupKey = url + "|" + content.substring(0, Math.min(64, content.length()));
+                // 按 文档ID+内容前缀 去重注册（同一文档块可能被多个查询命中）
+                String dedupKey = d.getId() + "|" + content.substring(0, Math.min(64, content.length()));
                 String sourceId = c != null
                     ? c.register(dedupKey, title, url, content, "internal", score)
                     : "";
