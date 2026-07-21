@@ -53,8 +53,7 @@ src/main/java/com/example/deepresearch/
 │   │   ├── PromptAdminController.java          # Prompt 模板管理（管理员）
 │   │   └── UserAdminController.java            # 用户管理仪表盘（管理员）
 │   └── dto/                                    # ResearchRequest, ResearchResponse, ResearchHistorySummary,
-│                                               #   ProgressEvent, UpdatePromptRequest,
-│                                               #   BatchUpdateAbGroupRequest, UserSummary
+│                                               # ProgressEvent, UpdatePromptRequest, BatchUpdateAbGroupRequest, UserSummary
 ├── agent/                                      # 智能体层（8 个 Agent + 工具/配置）
 │   ├── bundle/AgentBundle.java                 # ChatClient Bean 工厂（5 Advisor 全链 + 两层模型）
 │   ├── bundle/EnterpriseChatClientConfig.java  # 高级 ChatClient（含记忆+RAG 的 7 Advisor 完整链）
