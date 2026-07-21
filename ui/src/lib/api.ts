@@ -17,7 +17,7 @@ const API_BASE = '/api';
 /** Casdoor OAuth2 Token 端点 */
 const AUTH_BASE = process.env.NEXT_PUBLIC_AUTH_URL || 'https://auth.hyperinfer.top';
 /** Casdoor Client ID */
-const AUTH_CLIENT_ID = process.env.NEXT_PUBLIC_AUTH_CLIENT_ID || '9172d870f69845e615f5';
+const AUTH_CLIENT_ID = process.env.NEXT_PUBLIC_AUTH_CLIENT_ID || '5077a6f18ed9b31be437';
 
 // =========================== 基础请求 ===========================
 
