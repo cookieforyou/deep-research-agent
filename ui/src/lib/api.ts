@@ -15,9 +15,9 @@ import { ApiError } from './types';
 const API_BASE = '/api';
 
 /** Casdoor OAuth2 Token 端点 */
-const AUTH_BASE = process.env.NEXT_PUBLIC_AUTH_URL || 'https://auth.hyperinfer.top';
+const AUTH_BASE = process.env.NEXT_PUBLIC_AUTH_URL || 'http://localhost:8000';
 /** Casdoor Client ID */
-const AUTH_CLIENT_ID = process.env.NEXT_PUBLIC_AUTH_CLIENT_ID || '5077a6f18ed9b31be437';
+const AUTH_CLIENT_ID = process.env.NEXT_PUBLIC_AUTH_CLIENT_ID || 'unknown_client_id';
 
 // =========================== 基础请求 ===========================
 
@@ -183,7 +183,7 @@ export interface AuthErrorResponse {
 /**
  * Casdoor OAuth2 Password Grant 登录。
  *
- * POST https://auth.hyperinfer.top/api/login/oauth/access_token
+ * POST ${AUTH_BASE}/api/login/oauth/access_token
  * Content-Type: application/x-www-form-urlencoded
  */
 export async function loginWithPassword(
