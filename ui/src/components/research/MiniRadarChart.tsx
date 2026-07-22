@@ -6,7 +6,7 @@ import { EVAL_DIMENSIONS } from '@/lib/constants';
 import type { EvalResult } from '@/lib/types';
 
 // recharts 3.x 组件返回 ReactNode（含 undefined），React 19 JSX 要求 Element | null
-const PAxis = PolarAngleAxis as ComponentType<any>;
+const PAxis = PolarAngleAxis as ComponentType<Record<string, unknown>>;
 
 interface MiniRadarChartProps {
   evalResult: EvalResult;

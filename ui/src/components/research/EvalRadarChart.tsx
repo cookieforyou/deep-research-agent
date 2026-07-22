@@ -15,8 +15,8 @@ import { useTheme } from 'next-themes';
 
 // recharts 3.x 组件返回 ReactNode（含 undefined），React 19 JSX 要求 Element | null
 // see: https://github.com/recharts/recharts/issues
-const PAxis = PolarAngleAxis as ComponentType<any>;
-const PRAxis = PolarRadiusAxis as ComponentType<any>;
+const PAxis = PolarAngleAxis as ComponentType<Record<string, unknown>>;
+const PRAxis = PolarRadiusAxis as ComponentType<Record<string, unknown>>;
 
 interface EvalRadarChartProps {
   evalResult: EvalResult;
