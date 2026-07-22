@@ -136,6 +136,10 @@ spring:
 # DeepResearch 业务配置
 # =============================================================================
 deep-research:
+  # CORS 允许的前端域名（逗号分隔，生产环境改为实际域名）
+  cors:
+    allowed-origins: ${CORS_ORIGINS:http://localhost:3000}
+
   # 搜索配置
   search:
     bocha:

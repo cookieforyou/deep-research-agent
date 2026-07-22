@@ -31,6 +31,7 @@ yarn-error.log*
 
 # env files (can be committed for sharing)
 .env*.local
+.env*.production
 
 # vercel
 .vercel
