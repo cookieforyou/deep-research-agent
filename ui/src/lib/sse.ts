@@ -30,7 +30,9 @@ export function createSseConnection(
 
   function connect() {
     const token = getToken();
-    const backend = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8080';
+    // 空字符串 = 使用相对路径走同域 Nginx 代理（生产环境推荐）
+    // 设置具体 URL 如 https://api.example.com = 直连后端（跨域场景）
+    const backend = process.env.NEXT_PUBLIC_BACKEND_URL ?? '';
     let url = `${backend}/api/research/${sessionId}/stream`;
     if (token) {
       url += `?token=${encodeURIComponent(token)}`;

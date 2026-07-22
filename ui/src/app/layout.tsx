@@ -10,6 +10,7 @@ import './globals.css';
 export const metadata: Metadata = {
   title: 'DeepResearch — AI 深度研究助手',
   description: '基于多智能体的企业级 AI 深度研究系统',
+  icons: { icon: '/logo.svg' },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
