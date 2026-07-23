@@ -7,7 +7,7 @@
 services:
   # ---------- OpenTelemetry Collector: 接收 OTLP 数据并路由 ----------
   otel-collector:
-    image: otel/opentelemetry-collector-contrib:0.123.0
+    image: otel/opentelemetry-collector-contrib:latest
     container_name: deepresearch-otel-collector
     command: ["--config=/etc/otelcol-config.yml"]
     volumes:
@@ -22,7 +22,7 @@ services:
 
   # ---------- Jaeger: 分布式追踪 UI ----------
   jaeger:
-    image: jaegertracing/all-in-one:1.67.0
+    image: jaegertracing/all-in-one:latest
     container_name: deepresearch-jaeger
     ports:
       - "16686:16686"  # Jaeger UI
@@ -32,7 +32,7 @@ services:
 
   # ---------- Prometheus: 指标采集 + 告警规则评估 ----------
   prometheus:
-    image: prom/prometheus:v3.3.0
+    image: prom/prometheus:latest
     container_name: deepresearch-prometheus
     ports:
       - "9090:9090"
@@ -51,7 +51,7 @@ services:
 
   # ---------- Grafana: 仪表盘可视化 ----------
   grafana:
-    image: grafana/grafana:11.6.0
+    image: grafana/grafana:latest
     container_name: deepresearch-grafana
     ports:
       - "3333:3000"   # Grafana UI (宿主机 3333 避免与 Next.js :3000 冲突)
