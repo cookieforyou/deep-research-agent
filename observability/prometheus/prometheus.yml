@@ -22,7 +22,7 @@ scrape_configs:
     static_configs:
       - targets: ['host.docker.internal:8080']
         labels:
-          env: 'dev'
+          env: 'production'
           service: 'deep-research-agent'
 
   # OTel Collector — 经由 OTLP 推送的指标（生产环境路径）
@@ -31,7 +31,7 @@ scrape_configs:
     static_configs:
       - targets: ['otel-collector:8889']
         labels:
-          env: 'dev'
+          env: 'production'
           source: 'otel-collector'
 
   # Prometheus 自身监控

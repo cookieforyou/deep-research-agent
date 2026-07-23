@@ -23,7 +23,7 @@ processors:
     actions:
       - key: deployment.environment
         action: upsert
-        value: dev
+        value: production
 
 exporters:
   # Metrics → Prometheus (由 Prometheus 通过 /metrics 端点抓取)
@@ -31,23 +31,19 @@ exporters:
     endpoint: 0.0.0.0:8889
     namespace: deepresearch
 
-  # Traces → Jaeger (OTLP 协议)
+  # Jaeger (OTLP gRPC，Docker 内部网络)
   otlp/jaeger:
     endpoint: jaeger:4317
     tls:
       insecure: true
-
-  # 调试输出（仅开发环境，生产请移除）
-  debug:
-    verbosity: basic
 
 service:
   pipelines:
     traces:
       receivers: [otlp]
       processors: [memory_limiter, batch, attributes]
-      exporters: [otlp/jaeger, debug]
+      exporters: [otlp/jaeger]
     metrics:
       receivers: [otlp]
       processors: [memory_limiter, batch]
-      exporters: [prometheus, debug]
+      exporters: [prometheus]

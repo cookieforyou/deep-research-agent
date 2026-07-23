@@ -26,8 +26,6 @@ services:
     container_name: deepresearch-jaeger
     ports:
       - "16686:16686"  # Jaeger UI
-      - "4317:4317"    # OTLP gRPC (直接接收)
-      - "4318:4318"    # OTLP HTTP (直接接收)
     environment:
       - COLLECTOR_OTLP_ENABLED=true
     restart: unless-stopped
@@ -56,7 +54,7 @@ services:
     image: grafana/grafana:11.6.0
     container_name: deepresearch-grafana
     ports:
-      - "3000:3000"
+      - "3333:3000"   # Grafana UI (宿主机 3333 避免与 Next.js :3000 冲突)
     environment:
       GF_SECURITY_ADMIN_USER: admin
       GF_SECURITY_ADMIN_PASSWORD: admin
