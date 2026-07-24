@@ -4,7 +4,7 @@
 # 用法: docker compose build backend
 # =============================================================================
 
-FROM eclipse-temurin:21-jre
+FROM eclipse-temurin:21-jre-jammy
 
 WORKDIR /app
 
