@@ -20,7 +20,7 @@ scrape_configs:
   - job_name: 'deepresearch'
     metrics_path: '/actuator/prometheus'
     static_configs:
-      - targets: ['host.docker.internal:8080']
+      - targets: ['backend:8080']
         labels:
           env: 'production'
           service: 'deep-research-agent'

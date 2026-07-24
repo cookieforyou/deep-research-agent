@@ -3,3 +3,9 @@
 .claude
 target
 logs
+.env
+.env.docker
+.env.local
+.env.production
+ui/.env.local
+ui/.env.production

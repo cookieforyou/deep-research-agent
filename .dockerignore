@@ -1,0 +1,41 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# IDE
+.idea
+.vscode
+*.iml
+
+# Maven build artifacts (jar is explicitly copied, not built in Docker)
+target/*.jar.original
+target/classes/
+target/generated-sources/
+target/maven-status/
+target/maven-archiver/
+
+# Node.js
+ui/node_modules
+ui/.next
+ui/.pnpm-store
+
+# Docker
+observability/prometheus_data
+observability/grafana_data
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docs & logs
+*.md
+docs/
+logs/
+*.log
+
+# Environment (contains secrets)
+.env
+.env.local
+.env.production
+ui/.env.local

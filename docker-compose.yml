@@ -1,0 +1,162 @@
+# =============================================================================
+# DeepResearch — 生产级 Docker Compose
+# 包含: 后端 + 前端 + 可观测性完整栈（6 个服务）
+# 用法: docker compose up -d
+# =============================================================================
+
+services:
+  # ===========================================================================
+  # 应用层
+  # ===========================================================================
+
+  # ---------- Spring Boot 后端 ----------
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+      platforms:
+        - linux/amd64
+    container_name: deepresearch-backend
+    ports:
+      - "127.0.0.1:8080:8080"   # 仅 localhost，安全
+    env_file:
+      - .env.docker
+    environment:
+      - SPRING_PROFILES_ACTIVE=prod
+      - TZ=Asia/Shanghai
+    extra_hosts:
+      # 访问宿主机 PostgreSQL / Redis / Milvus
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "java", "-cp", "app.jar", "org.springframework.boot.loader.launch.JarLauncher", "--spring.profiles.active=prod"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "5"
+    restart: unless-stopped
+
+  # ---------- Next.js 前端 ----------
+  frontend:
+    build:
+      context: ./ui
+      dockerfile: Dockerfile
+      platforms:
+        - linux/amd64
+    container_name: deepresearch-frontend
+    ports:
+      - "127.0.0.1:3000:3000"   # 仅 localhost，安全
+    env_file:
+      - .env.docker
+    environment:
+      # Docker 内部网络直连后端（无需经由 Nginx）
+      - BACKEND_URL=http://backend:8080
+      - NODE_ENV=production
+      - TZ=Asia/Shanghai
+    depends_on:
+      backend:
+        condition: service_started
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "5"
+    restart: unless-stopped
+
+  # ===========================================================================
+  # 可观测性栈
+  # ===========================================================================
+
+  # ---------- Jaeger: 分布式追踪 UI ----------
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: deepresearch-jaeger
+    ports:
+      - "127.0.0.1:16686:16686"  # Jaeger UI
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+      - TZ=Asia/Shanghai
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    restart: unless-stopped
+
+  # ---------- OpenTelemetry Collector ----------
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    container_name: deepresearch-otel-collector
+    command: ["--config=/etc/otelcol-config.yml"]
+    volumes:
+      - ./observability/otel-collector/otelcol-config.yml:/etc/otelcol-config.yml:ro
+    ports:
+      - "127.0.0.1:4317:4317"   # OTLP gRPC
+      - "127.0.0.1:4318:4318"   # OTLP HTTP
+      - "127.0.0.1:8889:8889"   # Prometheus metrics exporter
+    depends_on:
+      - jaeger
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    restart: unless-stopped
+
+  # ---------- Prometheus: 指标采集 + 告警规则 ----------
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: deepresearch-prometheus
+    ports:
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./observability/prometheus/rules:/etc/prometheus/rules:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=15d'
+      - '--web.enable-lifecycle'
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    restart: unless-stopped
+
+  # ---------- Grafana: 仪表盘可视化 ----------
+  grafana:
+    image: grafana/grafana:latest
+    container_name: deepresearch-grafana
+    ports:
+      - "127.0.0.1:3333:3000"   # 宿主机 3333 避免与 Next.js :3000 冲突
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/provisioning/dashboards/llm-overview.json
+      - TZ=Asia/Shanghai
+    volumes:
+      - ./observability/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./observability/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    restart: unless-stopped
+
+# ===========================================================================
+# 持久化卷
+# ===========================================================================
+volumes:
+  prometheus_data:
+  grafana_data:

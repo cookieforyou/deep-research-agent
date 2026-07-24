@@ -1,0 +1,25 @@
+# =============================================================================
+# DeepResearch Backend — Production Docker Image
+# 基于 Eclipse Temurin JRE 21，运行 Spring Boot 可执行 Jar
+# 用法: docker compose build backend
+# =============================================================================
+
+FROM eclipse-temurin:21-jre
+
+WORKDIR /app
+
+# 复制预构建的 Spring Boot fat JAR
+COPY target/deep-research-agent-1.0.0-SNAPSHOT.jar app.jar
+
+# 健康检查（Spring Boot Actuator）
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+  CMD java -cp app.jar org.springframework.boot.loader.launch.JarLauncher --spring.profiles.active=docker 2>/dev/null || exit 1
+
+EXPOSE 8080
+
+# JVM 参数:
+#   -Xms256m -Xmx512m    堆内存（与 systemd 部署一致）
+#   -XX:+UseZGC          使用 ZGC（低延迟，Java 21 生产推荐）
+#   -XX:+ZGenerational   分代 ZGC（Java 21+，提升吞吐量）
+#   如需要调整 JVM 参数，通过 JAVA_OPTS 环境变量覆盖
+CMD ["sh", "-c", "java ${JAVA_OPTS:--Xms256m -Xmx512m -XX:+UseZGC -XX:+ZGenerational} -jar app.jar"]
