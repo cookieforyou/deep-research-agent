@@ -3,16 +3,17 @@
 
 FROM node:22-alpine AS base
 WORKDIR /app
+ENV COREPACK_NPM_REGISTRY=https://registry.npmmirror.com
 
 # ---- Dependencies ----
 FROM base AS deps
-RUN corepack enable && corepack prepare pnpm@latest --activate
+RUN corepack enable && corepack prepare pnpm@10.34.3 --activate
 COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile --prod
 
 # ---- Builder ----
 FROM base AS builder
-RUN corepack enable && corepack prepare pnpm@latest --activate
+RUN corepack enable && corepack prepare pnpm@10.34.3 --activate
 COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile
 COPY . .
