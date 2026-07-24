@@ -15,7 +15,7 @@ import { User, Lock, LogIn, Loader2 } from 'lucide-react';
  * 登录页面。
  *
  * 集成 Casdoor OAuth2 Password Grant 认证。
- * 用户输入用户名和密码，调用 auth.hyperinfer.top 获取 JWT access_token。
+ * 用户输入用户名和密码，调用授权服务获取 JWT access_token。
  */
 export default function LoginPage() {
   const router = useRouter();
