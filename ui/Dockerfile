@@ -15,7 +15,7 @@ RUN pnpm install --frozen-lockfile --prod
 FROM base AS builder
 RUN corepack enable && corepack prepare pnpm@10.34.3 --activate
 COPY package.json pnpm-lock.yaml ./
-RUN pnpm install --frozen-lockfile
+RUN pnpm install --frozen-lockfile --registry=https://registry.npmmirror.com
 COPY . .
 RUN pnpm build
 
