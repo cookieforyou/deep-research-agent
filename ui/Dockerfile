@@ -1,35 +1,19 @@
 # DeepResearch UI — Production Docker Image
-# 基于 Next.js standalone 模式构建
+# 基于 Next.js standalone 模式，直接使用本地构建产物
 
-FROM node:22-alpine AS base
+FROM node:22-alpine AS runner
 WORKDIR /app
-ENV COREPACK_NPM_REGISTRY=https://registry.npmmirror.com
 
-# ---- Dependencies ----
-FROM base AS deps
-RUN corepack enable && corepack prepare pnpm@10.34.3 --activate
-COPY package.json pnpm-lock.yaml ./
-RUN pnpm install --frozen-lockfile --prod
-
-# ---- Builder ----
-FROM base AS builder
-RUN corepack enable && corepack prepare pnpm@10.34.3 --activate
-COPY package.json pnpm-lock.yaml ./
-RUN pnpm install --frozen-lockfile --registry=https://registry.npmmirror.com
-COPY . .
-RUN pnpm build
-
-# ---- Runner ----
-FROM base AS runner
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
 
-COPY --from=builder /app/public ./public
-COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
-COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+# 直接复制本地构建好的产物
+COPY --chown=nextjs:nodejs .next/standalone ./
+COPY --chown=nextjs:nodejs .next/static ./.next/static
+COPY --chown=nextjs:nodejs public ./public
 
 USER nextjs
 

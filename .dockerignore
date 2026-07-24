@@ -17,7 +17,6 @@ target/maven-archiver/
 
 # Node.js
 ui/node_modules
-ui/.next
 ui/.pnpm-store
 
 # Docker
