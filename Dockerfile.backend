@@ -11,9 +11,9 @@ WORKDIR /app
 # 复制预构建的 Spring Boot fat JAR
 COPY target/deep-research-agent-1.0.0-SNAPSHOT.jar app.jar
 
-# 健康检查（Spring Boot Actuator）
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-  CMD java -cp app.jar org.springframework.boot.loader.launch.JarLauncher --spring.profiles.active=docker 2>/dev/null || exit 1
+# 用 HTTP 请求检查，而不是启动一个新 JVM
+HEALTHCHECK --interval=30s --timeout=10s --start-period=90s --retries=3 \
+  CMD wget --no-verbose --tries=1 --spider http://localhost:8080/actuator/health || exit 1
 
 EXPOSE 8080
 
